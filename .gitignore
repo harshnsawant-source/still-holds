@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+.ipynb_checkpoints/
+cache/
+.cache/
+site/
+node_modules/
+*.safetensors
+*.gguf
+*.bin
+*.pt
