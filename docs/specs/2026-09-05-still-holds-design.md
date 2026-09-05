@@ -1,89 +1,84 @@
-# still-holds: a standing replication scoreboard for alignment findings on open models
+# still-holds: do these findings still hold on open models?
 
-Design document. 2026-09-05.
+Design document. 2026-09-05. Revised the same day to cut premature
+infrastructure; see section 9 for what was removed and why.
 
 ## 1. The problem
 
-Alignment and interpretability research moves fast, and most of its
-influential empirical results were established once, on the models available
-at the time, and never checked again.
+Most influential empirical results in alignment and interpretability were
+measured once, on the models available at the time, and never checked again.
 
-Two gaps follow from that.
+Two gaps follow.
 
-The first is temporal. Many well-known findings were measured on closed models
-from 2023 and 2024. The open models people actually run today are different in
-scale, training data, and post-training. Whether those findings still describe
-current models is, in most cases, simply unknown.
+The first is temporal. Many well-known findings were established on closed
+models from 2023 and 2024. The open models people run today differ in scale,
+training data, and post-training. Whether those findings still describe current
+models is, in most cases, unknown rather than disputed.
 
-The second is economic. Checking a result requires compute, and the assumption
-that alignment research needs a cluster is widespread enough to be
-self-fulfilling. A large share of the people who would check these results
-have a laptop, a free Colab session, and a weekly Kaggle quota. If a finding
-cannot be examined on that hardware, it will not be examined by them.
-
-This project addresses both by maintaining a public, continuously-run set of
-replications where every experiment is constrained to run on free or consumer
-hardware, and where the verdict, including failure, is reported.
+The second is economic. Checking a result costs compute, and the assumption
+that this work requires a cluster is widespread enough to be self-fulfilling. A
+large share of the people who might check these results have a laptop, a free
+notebook session, and a weekly quota. Findings that cannot be examined on that
+hardware will not be examined by them.
 
 ## 2. What this is
 
-A repository of **findings**. Each finding takes one specific claim from one
-paper, states in advance what result would count as a replication, runs the
-experiment against current open models, and publishes an adjudicated verdict
-with confidence intervals.
+A repository of **replications**. Each one takes a single specific claim from a
+single paper, states in advance what result would count as a replication, runs
+the experiment against current open models, and publishes an honest verdict.
 
-The unit is a claim, not a benchmark. This is deliberately not an evaluation
-framework. Mature frameworks exist and are well maintained; where one fits a
-finding's needs it is used as a dependency, not reimplemented.
+Each replication is a **standalone artifact**: a directory and a written report
+that stand on their own, independent of anything else in the repository. There
+is no shared framework, no scoreboard, and no continuous integration in this
+version. Section 9 explains why, and what would have to be true before any of
+that gets built.
 
-The output is a scoreboard: findings on one axis, models on the other, each
-cell a verdict with the compute tier required to reproduce it.
+The unit is a claim, not a benchmark. This is not an evaluation framework.
+Mature frameworks exist and are well maintained; where one fits a replication's
+needs it is used as a dependency and never reimplemented.
 
 ## 3. Scope and non-goals
 
 In scope:
 
-- Claims that can be tested on models of 8B parameters or smaller, or on
-  larger models where the experiment is inference-only and short.
-- Claims with a measurable, directional effect that a mechanical rule can
-  adjudicate.
-- Honest reporting of failed and inconclusive replications.
+- Claims testable on models of 8B parameters or smaller, or on larger models
+  where the experiment is inference-only and short.
+- Claims with a measurable directional effect that a stated rule can adjudicate.
+- Honest reporting of failed and inconclusive results.
 
-Explicitly not in scope:
+Not in scope:
 
 - A general-purpose evaluation framework.
-- Leaderboards of model quality. This measures whether findings hold, not
-  which model is best.
-- Claims requiring frontier-scale compute, closed-model access, or
-  proprietary datasets.
-- Any claim about why a replication succeeded or failed beyond what the
+- Leaderboards of model quality. This measures whether findings hold, not which
+  model is better.
+- Claims requiring frontier-scale compute, closed-model access, or proprietary
+  data.
+- Explanations of *why* a replication succeeded or failed beyond what the
   experiment measures. Speculation is labelled as speculation.
 
-## 4. The finding format
-
-Each finding is a self-contained directory:
+## 4. The replication format
 
 ```
 findings/<slug>/
-  claim.yaml        pre-registered claim, prediction, adjudication rule, budget
+  claim.yaml        pre-registered claim, prediction, adjudication rule
   run.py            produces raw/ and results/measurements.json
-  report.md         narrative, plots, interpretation
-  raw/              committed model outputs with provenance stamps
+  report.md         the standalone writeup: method, plots, verdict, limits
+  raw/              committed model outputs with a provenance manifest
   results/          measurements.json, generated plots
 ```
 
-`claim.yaml` is the core primitive and carries:
+`claim.yaml` carries:
 
 | Field | Meaning |
 | --- | --- |
 | `paper` | title, authors, year, identifier |
 | `claim` | the single claim under test, one sentence |
-| `original_setting` | models, scale, and conditions in the source paper |
-| `original_effect` | the effect size reported by the source |
+| `original_setting` | models, scale, conditions in the source |
+| `original_effect` | the effect size the source reported |
 | `models` | the open models this replication tests |
-| `manipulation_check` | a precondition that must hold for the test to be meaningful |
-| `prediction` | direction, and the rule that adjudicates a replication |
-| `budget` | tier, wall-clock ceiling, VRAM ceiling |
+| `manipulation_check` | a precondition that must hold for the test to mean anything |
+| `prediction` | direction, and the rule that decides the verdict |
+| `compute` | what it takes to run: hardware, wall clock, whether a GPU is needed |
 
 Example prediction block:
 
@@ -94,228 +89,197 @@ prediction:
   partial_if:    "direction_matches and ci_excludes_null"
 ```
 
-**Pre-registration is enforced mechanically.** CI checks git history and
-fails any finding whose `claim.yaml` was first committed later than, or in the
-same commit as, its results. Predictions cannot be quietly fitted to observed
+**Pre-registration is the one piece of process kept from the start**, because
+it is what makes the verdicts worth reading and it costs almost nothing. The
+`claim.yaml` for a replication is committed in its own commit, before any
+result exists. A short script checks that ordering from git history and is run
+before publishing a report. Predictions cannot be quietly fitted to observed
 numbers.
 
-## 5. Adjudication
-
-Verdicts are computed by a shared adjudicator from `measurements.json` and the
-rule in `claim.yaml`. They are never assigned by hand.
+## 5. Verdicts
 
 | Verdict | Condition |
 | --- | --- |
-| `REPLICATED` | effect matches direction, CI excludes null, magnitude satisfies `replicated_if` |
-| `PARTIAL` | direction matches and CI excludes null, but magnitude falls short |
+| `REPLICATED` | direction matches, CI excludes null, magnitude satisfies `replicated_if` |
+| `PARTIAL` | direction matches and CI excludes null, magnitude falls short |
 | `FAILED` | CI includes null, or the effect runs opposite to the prediction |
-| `INCONCLUSIVE` | the manipulation check failed, or the budget was exhausted before adequate power |
+| `INCONCLUSIVE` | the manipulation check failed, or the run lacked power |
 
-`INCONCLUSIVE` exists to prevent a common error. A model too weak to exhibit
-the precondition of an experiment has not falsified the finding; it has failed
-to test it. Conflating the two would make the scoreboard actively misleading.
+`INCONCLUSIVE` carries most of the weight here. A model too weak to exhibit the
+precondition of an experiment has not falsified the finding; it has failed to
+test it. Conflating those two would make this repository a source of
+confidently wrong conclusions.
 
-Verdicts are per finding and per model. The grid is the result.
+Verdicts are computed from `measurements.json` and the rule in `claim.yaml`,
+not assigned by hand. In this version that computation lives in each
+replication's own `run.py`. It is not yet shared code.
 
-## 6. Compute tiers
+## 6. Compute
 
-Every finding declares the minimum tier that can reproduce it. CI fails an
-entry whose measured run exceeds its declared budget, which makes the
-project's central claim checkable rather than asserted.
+Every replication states what hardware it needs and how long it takes, in
+`claim.yaml` and at the top of its report. A reader should be able to tell in
+five seconds whether their own machine can reproduce it.
 
-| Tier | Hardware | Typical reach |
-| --- | --- | --- |
-| `cpu` | any laptop, no GPU | prompting experiments, small models |
-| `4gb` | 4GB consumer GPU | 1B to 3B, quantized |
-| `t4` | free Colab T4 | up to 7B or 8B |
-| `kaggle` | weekly free quota | fine-tuning at 7B |
+The working constraint is that every replication must run on free or consumer
+hardware: a laptop CPU, a 4GB consumer GPU, a free notebook GPU session, or a
+weekly free quota. A claim that cannot be tested within that envelope is out of
+scope rather than run on borrowed compute.
 
-The tier appears next to every scoreboard cell, so a reader can see at a
-glance which rows their own hardware can reproduce today.
+This is a stated and self-imposed constraint. It is deliberately not enforced
+by tooling in this version.
 
-## 7. Reproduction modes and provenance
+## 7. Reproducibility
 
-Two modes, and the distinction between them is the project's most important
-usability decision.
+Raw model outputs are committed alongside every replication, with a manifest
+recording model identifier and revision, library versions, hardware, date,
+seed, and the exact command.
 
-- **`verify`** re-runs the analysis over committed raw model outputs. Seconds,
-  no GPU, no model download, no API key. Anyone can audit the statistics.
-- **`rerun`** regenerates outputs from the model. Requires the declared tier.
+Each replication supports re-running its analysis over those committed outputs
+without a GPU or a model download. This lets a reader check the statistics in
+seconds without trusting the author or spending compute, which matters more
+than any other single property of the repository.
 
-Raw outputs are committed with a provenance manifest recording model
-identifier and revision hash, library versions, hardware, date, seed, and the
-exact command. Committing raw outputs makes the cost of checking someone
-else's arithmetic approximately zero, which is the point.
+Where raw outputs are too large to commit, they are published as a release
+artifact and referenced by content hash.
 
-Where raw outputs would be too large to commit, they are stored as a release
-artifact and referenced by content hash from the manifest.
+## 8. The replications
 
-## 8. Architecture
+Ordered by risk and by how much each one is worth.
 
-A small shared library, extracted rather than designed up front:
-
-- **model loading with a budget guard** — resolves a tier to a concrete
-  configuration, applies quantization, and refuses to proceed when a run would
-  silently exceed its declared ceiling.
-- **response cache** — content-addressed on model, prompt, generation
-  parameters, and seed, so repeated runs cost nothing.
-- **statistics** — bootstrap confidence intervals, shared across findings so
-  that every entry reports uncertainty the same way.
-- **adjudicator** — evaluates a prediction rule against measurements.
-- **scoreboard generator** — walks the findings tree and emits the results
-  table and the static site.
-
-Each `run.py` is ordinary Python using whatever the experiment needs directly.
-The library provides the parts every finding shares and nothing else. It is
-expected to be under roughly a thousand lines; growth beyond that is a signal
-that framework-building has crept in.
-
-The library is extracted after three findings exist, not before. A shared
-abstraction written before it has three real callers is written blind.
-
-## 9. Continuous integration
-
-The repository is public, so CPU minutes are unmetered.
-
-On every pull request:
-
-- schema validation of `claim.yaml`
-- the pre-registration ordering check described in section 4
-- presence and wellformedness of the budget declaration
-- full re-run of every `cpu`-tier finding
-- `verify` mode on every finding, confirming committed numbers reproduce from
-  committed raw outputs
-
-GPU-tier findings are run manually from a free notebook session and their
-outputs committed with the provenance manifest. CI verifies the manifest is
-complete and that `verify` reproduces the published numbers. This keeps GPU
-results auditable without pretending CI can run them.
-
-## 10. The scoreboard
-
-A static site generated from the findings tree. The landing view is the grid:
-findings by model, colour-coded verdicts, tier and runtime per cell. Each cell
-links to the finding's report, plot, and the command that produces it.
-
-Failed and inconclusive verdicts are displayed with the same prominence as
-replications. A scoreboard that quietly hides its negative results is worth
-nothing.
-
-## 11. The first three findings
-
-Chosen to escalate along two axes at once: experimental method, and cost.
-
-### 11.1 Unfaithful chain-of-thought under biasing context
+### 8.1 Unfaithful chain-of-thought under biasing context
 
 Turpin, Michael, Perez and Bowman, 2023, arXiv:2305.04388. Reordering few-shot
-examples so that the correct answer is always the same option biases the
-model's answer while its stated reasoning does not mention the bias. Reported
-accuracy drop of up to 36% across 13 BIG-Bench Hard tasks, on GPT-3.5 and
-Claude 1.0.
+examples so the correct answer is always the same option shifts the model's
+answer toward the bias, while its stated reasoning does not mention the bias.
+Reported accuracy drop of up to 36% across 13 BIG-Bench Hard tasks on GPT-3.5
+and Claude 1.0.
 
 Open question: the source models were closed and are two generations old. Open
 models at 1B to 8B are trained on far more chain-of-thought than existed then.
 
-Manipulation check required: confirm the model's answers actually shift toward
-the biasing feature before measuring whether the reasoning conceals it. A model
-that ignores the bias yields `INCONCLUSIVE`, not `FAILED`.
+Manipulation check: confirm answers actually shift toward the biasing feature
+before measuring whether the reasoning conceals it. A model that ignores the
+bias yields `INCONCLUSIVE`.
 
-Tier `cpu` to `4gb`. Scoped for v1 to four tasks and three models.
+CPU-feasible. Scoped to four tasks and three models. Roughly a fortnight of
+evenings.
 
-This is first because it can fail only cheaply, and it exercises every part of
-the pipeline end to end.
+First because it is cheap, because it can only fail cheaply, and because
+finishing one complete replication end to end is worth more than starting three.
 
-### 11.2 Refusal mediated by a single direction
-
-Arditi, Obeso, Syed, Paleka, Panickssery, Gurnee and Nanda, 2024,
-arXiv:2406.11717. A single difference-in-means direction derived from
-contrastive harmful and harmless instructions causally mediates refusal across
-13 open chat models up to 72B.
-
-This claim is unusual in being both already established on open models and
-actively contested. arXiv:2602.02132 argues that refusal is not adequately
-described by a single direction. A pre-registered replication that adjudicates
-between two published positions is a stronger contribution than a confirmation.
-
-Method note with a safety consequence: the primary causal test is the
-**inducing** direction, steering toward refusal on harmless prompts. This tests
-the same causal claim as ablation. See section 12.
-
-Tier `4gb` to `t4`.
-
-### 11.3 Self-other overlap reduces deception
+### 8.2 Self-other overlap reduces deception
 
 Carauleanu, Vaiana, Rosenblatt, Berg and Schwerz de Lucena, 2024,
 arXiv:2412.16325. Fine-tuning on contrastive self- and other-referencing
-observations reduced deceptive responses in Mistral-7B-Instruct-v0.2 from
-73.6% to 17.2%, with comparable reductions reported at 27B and 78B.
+observations reduced deceptive responses in Mistral-7B-Instruct-v0.2 from 73.6%
+to 17.2%, with comparable reductions reported at 27B and 78B.
 
-The 7B result sits inside the free Kaggle quota, so the headline number is
-directly reachable. No independent replication outside the original group is
-known to the author at the time of writing.
+**This is the one the project is actually aiming at.** The 7B result sits
+inside a free weekly GPU quota, so the headline number is directly reachable.
+No independent replication outside the original group is known to the author at
+the time of writing. A confirmation gives a neglected method its first outside
+support; a failure is itself a result worth publishing. Both outcomes are
+useful, which is the mark of a well-chosen experiment.
 
-Tier `kaggle`. This is the entry most likely to slip, which is why it is third.
+Requires LoRA fine-tuning, reconstruction of the deception evaluation from the
+paper, and a capability-retention measurement so that reduced deception can be
+distinguished from degraded competence.
 
-## 12. Dual-use policy
+The report is written neutrally whatever the number says, and sent to the
+original authors when it is finished.
 
-One class of finding in this area carries a capability externality: methods for
-studying a safety behaviour can also be methods for removing it. The refusal
-direction is the immediate case, and the policy is set now rather than
-improvised later.
+This is the highest-value and highest-risk item. It gets real budget and it
+comes second, once the process is proven on 8.1 and not before.
 
-Principles:
+### 8.3 Refusal mediated by a single direction
+
+Arditi, Obeso, Syed, Paleka, Panickssery, Gurnee and Nanda, 2024,
+arXiv:2406.11717. A difference-in-means direction from contrastive harmful and
+harmless instructions causally mediates refusal across 13 open chat models.
+
+Attractive because the claim is actively contested: arXiv:2602.02132 argues
+refusal is not adequately described by a single direction. A pre-registered
+replication adjudicating between two published positions is stronger than a
+confirmation.
+
+Optional and third. Attempted only if 8.1 and 8.2 both land.
+
+Method note with a safety consequence: the primary causal test is the
+**inducing** direction, steering toward refusal on harmless prompts, which
+tests the same mediation claim as ablation. See section 10.
+
+## 9. What was deliberately not built
+
+An earlier draft of this document specified a compute-tier system enforced in
+CI, a shared adjudicator library, a generated scoreboard site, and continuous
+integration re-running replications on every push.
+
+All of it was removed. That machinery is justified by volume, and at three
+replications there is no volume to justify it. Building it first would invert
+the project: most of the effort would go into scaffolding rather than into the
+experiments the scaffolding exists to hold, and the scaffolding is the more
+comfortable work of the two.
+
+The order is fixed. Shared abstractions come after the code they abstract, not
+before.
+
+**Graduation criteria.** Shared tooling, a scoreboard, and CI become
+appropriate when five or more replications exist, at least three of them share
+a mechanism worth extracting, and the manual publishing process has become the
+bottleneck. Until all three hold, they stay unbuilt.
+
+## 10. Dual-use policy
+
+Some findings here carry a capability externality: a method for studying a
+safety behaviour can also be a method for removing it. The refusal direction is
+the immediate case and the policy is set now rather than improvised later.
 
 1. Where a causal claim can be tested in a direction that does not degrade a
    safety property, that direction is the primary test. For refusal, inducing
    refusal on harmless inputs tests the same mediation claim as ablating it.
-2. Numbers required to adjudicate a claim are reported, including the
-   suppressing direction where the claim depends on it.
-3. No turnkey path is shipped. This repository does not provide a command whose
-   purpose is to disable a safety behaviour, and does not publish modified
-   weights.
-4. Where the underlying technique is already public, the policy is not
-   concealment. It is a refusal to make the harmful use more convenient than it
-   already is.
+2. Numbers needed to adjudicate a claim are reported, including a suppressing
+   direction where the claim depends on it.
+3. No turnkey path is shipped. This repository provides no command whose
+   purpose is to disable a safety behaviour, and publishes no modified weights.
+4. Where the underlying technique is already public, this is not concealment. It
+   is a refusal to make the harmful use more convenient than it already is.
 
-A finding that cannot satisfy these constraints and still test its claim is not
-added.
+A claim that cannot satisfy these constraints and still be tested is not added.
 
-## 13. Threats to validity
+## 11. Honest limitations
 
+- **Replication is low-status work.** The field rewards novelty. Careful
+  confirmation of an existing result may attract little attention, and no amount
+  of rigour changes that. The value of a replication that succeeds is real but
+  quiet; the value of one that fails is much larger. Which of those happens is
+  not under the author's control.
 - **Small models may not support the phenomenon.** Several findings depend on
-  capabilities that emerge with scale. The manipulation check and the
-  `INCONCLUSIVE` verdict exist for this, but the boundary is a judgement call
-  and will sometimes be got wrong. Manipulation checks are stated in
-  `claim.yaml` and open to challenge.
+  capabilities that emerge with scale. If a large share of results come back
+  `INCONCLUSIVE`, the honest conclusion is that these claims cannot be tested at
+  this scale, which is itself worth reporting even though it undercuts the
+  premise that this work is broadly accessible on small hardware.
+- **A single implementer is weak evidence.** One person reimplementing a method
+  and finding it does not replicate is more likely to have implemented it wrong
+  than to have overturned the result, and reports must say so. Committed raw
+  outputs and reproducible analysis reduce this. They do not remove it.
 - **Quantization is a confound.** Running at 4-bit is not running the model. Any
-  finding measured on a quantized model records the quantization in its
-  manifest, and where budget allows the same finding is run unquantized at a
-  higher tier for comparison.
+  quantized measurement records that, and is re-run unquantized where the budget
+  allows.
 - **A replication is not the original experiment.** Different models, smaller
-  scale, and reimplemented code all differ from the source. Reports state what
-  differs. A `FAILED` verdict is evidence that the claim does not extend to the
-  tested setting, and is not by itself evidence that the original was wrong.
-- **Single-implementer bias.** All findings are implemented by the same person,
-  so an error in method or taste is correlated across entries. Committed raw
-  outputs and `verify` mode exist so that others can check the analysis
-  independently of the implementation.
-- **Selection of claims.** Which findings get tested is a choice, and choosing
-  only fragile-looking claims would produce a misleading scoreboard. Selection
-  criteria are recorded in each report.
+  scale, reimplemented code. A `FAILED` verdict is evidence a claim does not
+  extend to the tested setting, not evidence the original was wrong.
+- **Choosing which claims to test is itself a choice.** Selecting only
+  fragile-looking findings would produce a misleading picture. Selection
+  reasoning goes in each report.
 
-## 14. Build order and definition of done for v1
+## 12. Definition of done
 
-1. Finding 11.1 implemented by hand, end to end, with no shared library.
-2. Finding 11.2 implemented by hand. Note what was copied.
-3. Finding 11.3 implemented. Note what was copied again.
-4. Extract the shared library from what repeated across the three.
-5. Adjudicator and scoreboard generator.
-6. CI: schema, pre-registration ordering, budget enforcement, `verify`.
-7. Static site deployed.
+Version one is complete when 8.1 is published as a standalone replication:
+pre-registered claim, committed raw outputs, analysis reproducible without a
+GPU, an adjudicated verdict, and a report that a reader unfamiliar with this
+repository can follow start to finish.
 
-v1 is complete when three findings carry adjudicated verdicts, the scoreboard
-is generated, `verify` reproduces every published number with no GPU, CI
-enforces pre-registration and budgets, and the site is live.
+Version two is 8.2, published the same way.
 
-Cadence is unhurried and the order above is not negotiable in one respect: the
-library comes after the third finding, never before.
+Nothing else is scheduled. Whether this becomes a larger body of work depends
+on whether the first two are worth reading.
