@@ -37,6 +37,12 @@ def _commit(repo: Path, rel: str, body: str, message: str) -> None:
     _run(repo, "commit", "-q", "-m", message)
 
 
+def _delete(repo: Path, rel: str, message: str) -> None:
+    (repo / rel).unlink()
+    _run(repo, "add", rel)
+    _run(repo, "commit", "-q", "-m", message)
+
+
 def test_first_commit_date_is_none_for_an_uncommitted_file(repo: Path):
     (repo / "findings" / "f" / "claim.yaml").write_text("x", encoding="utf-8")
     assert first_commit_date(repo, "findings/f/claim.yaml") is None
@@ -75,3 +81,50 @@ def test_a_missing_claim_is_reported(repo: Path):
 def test_results_not_yet_committed_is_fine(repo: Path):
     _commit(repo, "findings/f/claim.yaml", "claim: x", "pre-register f")
     assert check(repo, "f") == []
+
+
+# --- The claim must be frozen once results exist, not merely predate them ---
+#
+# first_commit_date only sees the commit that first ADDED a path. A claim that
+# is edited after its results exist would slip past a check built only on
+# that function: the edit is invisible to it. These tests cover the edit, and
+# the equivalent delete-then-recreate, that a naive "was it added before
+# results" check would miss.
+
+
+def test_claim_edited_after_results_is_reported(repo: Path):
+    _commit(repo, "findings/f/claim.yaml", "claim: x", "pre-register f")
+    _commit(repo, "findings/f/results/measurements.json", "{}", "results for f")
+    _commit(repo, "findings/f/claim.yaml", "claim: y  # loosened", "edit claim after seeing results")
+    problems = check(repo, "f")
+    assert problems
+    assert "claim.yaml was modified after results existed" in problems[0]
+
+
+def test_claim_untouched_after_results_is_fine(repo: Path):
+    _commit(repo, "findings/f/claim.yaml", "claim: x", "pre-register f")
+    _commit(repo, "findings/f/results/measurements.json", "{}", "results for f")
+    assert check(repo, "f") == []
+
+
+def test_claim_edited_before_results_is_fine(repo: Path):
+    _commit(repo, "findings/f/claim.yaml", "claim: x", "pre-register f")
+    _commit(repo, "findings/f/claim.yaml", "claim: x refined", "refine claim before results")
+    _commit(repo, "findings/f/results/measurements.json", "{}", "results for f")
+    assert check(repo, "f") == []
+
+
+def test_claim_deleted_and_readded_after_results_is_reported(repo: Path):
+    _commit(repo, "findings/f/claim.yaml", "claim: x", "pre-register f")
+    _delete(repo, "findings/f/claim.yaml", "withdraw claim")
+    _commit(repo, "findings/f/results/measurements.json", "{}", "results for f")
+    _commit(repo, "findings/f/claim.yaml", "claim: z  # different", "re-add claim with different content")
+    problems = check(repo, "f")
+    assert problems
+    assert "claim.yaml was modified after results existed" in problems[0]
+
+
+def test_results_with_no_claim_at_all_is_still_reported(repo: Path):
+    _commit(repo, "findings/f/results/measurements.json", "{}", "results only, no claim ever")
+    problems = check(repo, "f")
+    assert problems and "claim.yaml" in problems[0]

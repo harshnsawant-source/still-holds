@@ -44,6 +44,24 @@ def first_commit_date(repo: Path, relative_path: str) -> str | None:
     return out.splitlines()[-1].strip()
 
 
+def last_commit_touching(repo: Path, relative_path: str) -> str | None:
+    """"sha date" of the most recent commit that touched `relative_path`, or None.
+
+    Unlike `first_commit_date`, this is not filtered to additions: an edit, or
+    a delete followed by a re-add with different content, counts. It exists
+    because a claim is not "pre-registered" merely because *some* commit of it
+    predates the results — it is pre-registered only if *every* commit of it
+    does. A claim rewritten after the numbers were seen, even quietly, must be
+    caught here; `git log` on the bare path (no `--diff-filter`) surfaces that
+    edit as the newest entry regardless of what happened to the path in
+    between.
+    """
+    out = _git(repo, "log", "--format=%H %cI", "--", relative_path)
+    if not out:
+        return None
+    return out.splitlines()[0].strip()
+
+
 def _commit_order(repo: Path) -> list[str]:
     """All commit hashes reachable from HEAD, oldest first.
 
@@ -59,9 +77,21 @@ def _commit_order(repo: Path) -> list[str]:
 
 
 def check(repo: Path, finding: str) -> list[str]:
-    """Return the pre-registration problems for one finding. Empty means fine."""
+    """Return the pre-registration problems for one finding. Empty means fine.
+
+    The rule enforced is not "the claim was added before the results" — it is
+    that the claim's LAST modification precedes the results' FIRST
+    appearance, strictly. Once results exist for a finding, its claim.yaml is
+    frozen: any further commit that touches it, by any means (edit, or
+    delete-then-recreate), is a violation, because that is precisely the
+    quiet-loosening-of-a-threshold-after-seeing-the-number this check exists
+    to catch. There is no "small correction" exemption. A claim that
+    genuinely needs to change after results exist should become a new claim
+    in a new commit, with the old results republished under it — a decision
+    for a human to take deliberately, not one this function grants.
+    """
     base = f"findings/{finding}"
-    claim = first_commit_date(repo, f"{base}/claim.yaml")
+    claim = last_commit_touching(repo, f"{base}/claim.yaml")
     results = first_commit_date(repo, f"{base}/results")
 
     if results is None:
@@ -84,16 +114,26 @@ def check(repo: Path, finding: str) -> list[str]:
 
     order = _commit_order(repo)
     if order and claim_sha in order and results_sha in order:
-        results_before_claim = order.index(results_sha) < order.index(claim_sha)
+        claim_last_touch_is_after_results = (
+            order.index(claim_sha) > order.index(results_sha)
+        )
     else:
         # Fallback for a history the topological listing didn't cover (should
-        # not happen for commits first_commit_date already found on HEAD).
-        results_before_claim = claim_when > results_when
+        # not happen for commits already found by the functions above).
+        claim_last_touch_is_after_results = claim_when > results_when
 
-    if results_before_claim:
+    if claim_last_touch_is_after_results:
+        # The ordering verdict comes from commit history (topological order),
+        # never from these dates — a committer date can be forged
+        # (GIT_COMMITTER_DATE) without changing where a commit sits in
+        # history. Dates are included only as recorded metadata, not as
+        # evidence for the ordering claim.
         return [
-            f"{finding}: results were committed before claim.yaml "
-            f"({results_when} before {claim_when})."
+            f"{finding}: results first appeared (commit {results_sha[:7]}) "
+            f"before claim.yaml was last modified (commit {claim_sha[:7]}) "
+            f"— claim.yaml was modified after results existed. A claim is "
+            f"frozen once its finding has results. Recorded committer dates, "
+            f"for reference only: results {results_when}, claim {claim_when}."
         ]
     return []
 
