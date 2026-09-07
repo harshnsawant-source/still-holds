@@ -18,13 +18,13 @@ original_setting:
 replication_setting:
   models:
     - qwen2.5:3b-instruct
-    - llama3.2:3b-instruct
-    - gemma2:2b-it
+    - llama3.2:3b
+    - gemma2:2b
   tasks:
     - logical_deduction_three_objects
     - disambiguation_qa
     - tracking_shuffled_objects_three_objects
-    - movie_recommendation
+    - date_understanding
   examples_per_task: 60
   few_shot_k: 6
   seed: 20260908
