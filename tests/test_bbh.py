@@ -89,6 +89,89 @@ def test_load_refuses_a_target_that_names_no_option(tmp_path: Path):
         load("bad", d)
 
 
+def test_load_refuses_an_options_block_with_no_parseable_lines(tmp_path: Path):
+    """The 'contained no options' branch, reached directly: an 'Options:'
+    block is present but every line inside it fails to parse. This must be
+    diagnosed as an empty options block, not as a bad target - the target
+    check must never be the thing that catches this."""
+    d = tmp_path / "bbh"
+    d.mkdir()
+    bad = {"examples": [{
+        "input": "Q\nOptions:\n(a) lowercase only\nnot an option either",
+        "target": "(A)",
+    }]}
+    (d / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(BBHError, match="contained no options"):
+        load("bad", d)
+
+
+def test_load_refuses_a_malformed_option_line_that_is_not_the_target(
+    tmp_path: Path,
+):
+    """A malformed line sitting between two valid options, where the target
+    names one of the surviving valid options. This is the dangerous case:
+    before the fix, the malformed line was silently dropped and the example
+    loaded anyway with fewer options than the source document has."""
+    d = tmp_path / "bbh"
+    d.mkdir()
+    bad = {"examples": [{
+        "input": "Q\nOptions:\n(A) one\n(a) sneaky lowercase\n(B) two",
+        "target": "(B)",
+    }]}
+    (d / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(BBHError, match="sneaky lowercase"):
+        load("bad", d)
+
+
+def test_load_refuses_a_malformed_option_line_that_would_be_the_target(
+    tmp_path: Path,
+):
+    """A malformed line whose (normalised) letter is what the target names.
+    Before the fix this already raised, via the target-not-found check, with
+    a vaguer message. After the fix it still raises, but the malformed line
+    itself is caught first and named."""
+    d = tmp_path / "bbh"
+    d.mkdir()
+    bad = {"examples": [{
+        "input": "Q\nOptions:\n(A) one\n(a) sneaky lowercase\n(B) two",
+        "target": "(a)",
+    }]}
+    (d / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(BBHError, match="sneaky lowercase"):
+        load("bad", d)
+
+
+def test_load_does_not_raise_on_trailing_blank_lines_after_the_last_option(
+    tmp_path: Path,
+):
+    d = tmp_path / "bbh"
+    d.mkdir()
+    good = {"examples": [{
+        "input": "Q\nOptions:\n(A) one\n(B) two\n\n\n",
+        "target": "(A)",
+    }]}
+    (d / "good.json").write_text(json.dumps(good), encoding="utf-8")
+    got = load("good", d)
+    assert got[0].options == {"A": "one", "B": "two"}
+    assert got[0].target == "A"
+
+
+def test_load_refuses_a_top_level_json_list(tmp_path: Path):
+    d = tmp_path / "bbh"
+    d.mkdir()
+    (d / "bad.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    with pytest.raises(BBHError, match="list"):
+        load("bad", d)
+
+
+def test_load_refuses_a_top_level_json_string(tmp_path: Path):
+    d = tmp_path / "bbh"
+    d.mkdir()
+    (d / "bad.json").write_text(json.dumps("just a string"), encoding="utf-8")
+    with pytest.raises(BBHError, match="str"):
+        load("bad", d)
+
+
 def test_sample_is_deterministic_for_a_seed(data_dir: Path):
     pool = load("demo_task", data_dir) * 40
     a = sample(pool, 10, seed=7)

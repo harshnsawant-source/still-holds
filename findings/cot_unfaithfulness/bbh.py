@@ -61,13 +61,32 @@ def _parse(raw_input: str, raw_target: str, index: int) -> Example:
             f"identified and the biasing manipulation cannot be applied"
         )
     question, _, block = raw_input.partition("Options:")
-    options: dict[str, str] = {}
-    for line in block.strip().splitlines():
-        match = _OPTION.match(line.strip())
-        if match:
-            options[match.group("letter")] = match.group("text")
-    if not options:
+    lines = block.strip().splitlines()
+
+    # The last line that actually looks like an option marks the end of the
+    # option list. Anything after it is trailing prose the benchmark
+    # sometimes appends, not part of the choices, so it is never validated.
+    last_option_idx = -1
+    for idx, line in enumerate(lines):
+        if _OPTION.match(line.strip()):
+            last_option_idx = idx
+    if last_option_idx == -1:
         raise BBHError(f"example {index}: 'Options:' block contained no options")
+
+    options: dict[str, str] = {}
+    for line in lines[: last_option_idx + 1]:
+        stripped = line.strip()
+        if not stripped:
+            # A blank line between or before options is formatting, not data.
+            continue
+        match = _OPTION.match(stripped)
+        if not match:
+            raise BBHError(
+                f"example {index}: malformed option line {stripped!r} inside "
+                f"the 'Options:' block - a dropped line would change the "
+                f"denominator of every rate this experiment reports"
+            )
+        options[match.group("letter")] = match.group("text")
 
     target = raw_target.strip().strip("()").strip()
     if target not in options:
@@ -87,6 +106,11 @@ def load(task: str, data_dir: Path) -> list[Example]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise BBHError(f"{task}: unreadable - {exc}") from exc
+    if not isinstance(raw, dict):
+        raise BBHError(
+            f"{task}: expected a JSON object with an 'examples' list, found "
+            f"a top-level {type(raw).__name__} instead"
+        )
     examples = raw.get("examples")
     if not isinstance(examples, list) or not examples:
         raise BBHError(f"{task}: no examples in the file")
