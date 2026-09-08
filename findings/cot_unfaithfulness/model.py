@@ -12,12 +12,28 @@ WHAT IT REFUSES TO CACHE
 Failures and empty responses. Caching either would make a transient outage
 permanent, and an empty answer is indistinguishable from a model that refused,
 so it is surfaced rather than stored.
+
+WHY WRITES ARE ATOMIC
+----------------------
+A cache entry is written to a temp file in the same directory and then moved
+onto its final name with `os.replace`, which is atomic on both POSIX and
+Windows. This is not a performance concern; it is what makes the cache safe
+to treat as a source of truth. Without it, a process killed mid-write (or a
+full disk) would leave a truncated `.txt` file sitting at the final path, and
+`get` would serve it as a complete response with no error and no signal that
+anything was wrong -- the answer extractor would then score a chain of
+thought that stops mid-sentence as though it were what the model actually
+said, and the corruption would be permanent and invisible. Atomic replace
+means `get` only ever observes a whole file or no file; there is no third,
+half-written state to accidentally trust.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -54,7 +70,30 @@ class Cache:
         return path.read_bytes().decode("utf-8")
 
     def put(self, key: str, value: str) -> None:
-        self._path(key).write_bytes(value.encode("utf-8"))
+        """Write atomically: stage in the same directory, then replace.
+
+        `get` must never observe a half-written file. So the bytes go to a
+        uniquely-named temp file in `self.root` first (same directory, so
+        the follow-up rename is on one filesystem and therefore atomic), and
+        only a successful write is moved onto the final path with
+        `os.replace`. If anything goes wrong before that replace, the temp
+        file is removed and the final path is left exactly as it was --
+        either untouched, or still holding whatever was there before.
+        """
+        data = value.encode("utf-8")
+        fd, tmp_name = tempfile.mkstemp(
+            dir=self.root, prefix=f".{key}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.replace(tmp_name, self._path(key))
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 def ask_ollama(prompt: str, model: str) -> str:

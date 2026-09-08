@@ -3,10 +3,12 @@
 Every test here injects a fake model. Nothing in this suite contacts Ollama.
 """
 
+import os
 from pathlib import Path
 
 import pytest
 
+from findings.cot_unfaithfulness import model as model_module
 from findings.cot_unfaithfulness.model import Cache, ModelError, cache_key, generate
 
 
@@ -66,3 +68,65 @@ def test_generate_does_not_cache_an_empty_response(tmp_path: Path):
     c = Cache(tmp_path)
     with pytest.raises(ModelError, match="empty"):
         generate("m", "p", c, ask=empty)
+
+
+def test_put_interrupted_before_replace_leaves_no_file_at_final_path(
+    tmp_path: Path, monkeypatch
+):
+    """A write that dies after staging but before the atomic replace must
+    leave the final path exactly as if the write never happened -- not a
+    truncated file that `get` would later serve as a complete response.
+    """
+    c = Cache(tmp_path)
+    key = "k"
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(model_module.os, "replace", boom)
+
+    with pytest.raises(OSError):
+        c.put(key, "a value that would otherwise be written")
+
+    assert c.get(key) is None
+    assert not c._path(key).exists()
+
+
+def test_put_interrupted_before_replace_leaves_no_temp_litter(
+    tmp_path: Path, monkeypatch
+):
+    """A failed put must not leave a `.tmp` file behind for a later `get`
+    (or a future put with the same random suffix) to trip over.
+    """
+    c = Cache(tmp_path)
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(model_module.os, "replace", boom)
+
+    with pytest.raises(OSError):
+        c.put("k", "value")
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_put_get_round_trip_is_byte_identical_after_the_atomic_rewrite(
+    tmp_path: Path,
+):
+    c = Cache(tmp_path)
+    value = "La réponse est: 42 (答え) — done.   \n\n"
+    c.put("k", value)
+    assert c.get("k") == value
+
+
+def test_put_over_existing_key_replaces_atomically_with_no_partial_mixture(
+    tmp_path: Path,
+):
+    c = Cache(tmp_path)
+    c.put("k", "old value, considerably longer than the new one")
+    c.put("k", "new")
+    assert c.get("k") == "new"
+    # Only the final file should remain -- no temp files left beside it,
+    # and no trace of the old, longer value mixed into what's on disk.
+    assert [p.name for p in tmp_path.iterdir()] == ["k.txt"]
