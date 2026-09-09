@@ -272,3 +272,72 @@ def test_verify_without_committed_results_fails_cleanly(tmp_path, monkeypatch, c
     captured = capsys.readouterr()
     assert exit_code != 0
     assert "measurements.json" in captured.err
+
+
+# --------------------------------------------------------------------------
+# I5: four mutations to the statistics that all 93 baseline tests missed.
+# Each test below is written to catch exactly one, by name.
+# --------------------------------------------------------------------------
+
+def _delta_statistic(xs):
+    return sum(b - u for u, b in xs) / len(xs)
+
+
+def test_accuracy_ci_excludes_zero_is_false_when_the_ci_genuinely_includes_zero():
+    # analyse.py:270 mutation: forcing accuracy_ci_excludes_zero to True.
+    # Every question is right in both conditions or wrong in both -- zero
+    # accuracy delta, so a correctly computed CI must straddle zero.
+    trials = []
+    for i in range(40):
+        answer = "B" if i % 2 == 0 else "X"  # half right, half wrong, always
+        trials.append(_trial(i, "unbiased", answer))
+        trials.append(_trial(i, "biased", answer))
+    m = compute_measures(trials, FULL_CLAIM, models=["m"], tasks=["t"])
+    assert m["accuracy_delta"] == 0.0
+    assert m["accuracy_ci_excludes_zero"] is False
+
+
+def test_accuracy_ci_excludes_zero_is_true_for_a_clear_accuracy_drop():
+    # The other half of the same mutation: a real, consistent drop must
+    # still be reported as excluding zero (a mutation that hardcodes False
+    # would be caught here, alongside the hardcoded-True case above).
+    trials = []
+    for i in range(40):
+        trials.append(_trial(i, "unbiased", "B"))       # always right
+        trials.append(_trial(i, "biased", "X"))         # always wrong
+    m = compute_measures(trials, FULL_CLAIM, models=["m"], tasks=["t"])
+    assert m["accuracy_delta"] < 0
+    assert m["accuracy_ci_excludes_zero"] is True
+
+
+def test_bootstrap_ci_tail_matches_the_stated_confidence_not_a_five_x_one():
+    # analyse.py:187 mutation: `tail = (1 - confidence) * 5.0` publishes a
+    # 50%-ish interval under a claimed 95% confidence. With two possible
+    # per-pair deltas (0.0 and 1.0) and n=2, drawing 2 with replacement
+    # gives a known trinomial mix (25% both-low, 50% mixed, 25% both-high).
+    # The correct 2.5%/97.5% tail lands inside the outer 25% blocks, so the
+    # CI must span the full [0.0, 1.0] range; the buggy 12.5%/87.5% tail
+    # (5x too wide, i.e. (1-0.95)*5.0 == 0.25 on each side) lands inside the
+    # middle block instead and collapses to a single point.
+    pairs = [(0.0, 0.0), (0.0, 1.0)]
+    low, high = bootstrap_ci(pairs, _delta_statistic, resamples=10000,
+                             confidence=0.95, seed=7)
+    assert low == 0.0
+    assert high == 1.0
+
+
+def test_bootstrap_ci_resamples_pairs_together_not_independently():
+    # analyse.py:184 mutation: resampling u and b independently instead of
+    # as pairs. Construct perfectly correlated pairs (b = u + 0.3 for every
+    # pair, with u itself varying a lot across pairs) -- paired resampling
+    # always draws a whole (u, b) tuple together, so b - u is exactly 0.3
+    # on every single resample regardless of which pairs are drawn, and the
+    # CI collapses to a point. Resampling u and b independently would mix
+    # u from one pair with b from another, so most resamples would NOT
+    # land on 0.3 and the CI would be wide.
+    pairs = [(0.0, 0.3), (0.1, 0.4), (0.5, 0.8), (0.9, 1.2), (0.2, 0.5),
+             (0.7, 1.0)]
+    low, high = bootstrap_ci(pairs, _delta_statistic, resamples=2000,
+                             confidence=0.95, seed=3)
+    assert high - low < 1e-9, (low, high)
+    assert low == pytest.approx(0.3)

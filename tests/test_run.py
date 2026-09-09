@@ -57,3 +57,32 @@ def test_the_manifest_records_what_a_reader_needs_to_reproduce_it():
     for key in ("models", "tasks", "config", "python", "platform", "created"):
         assert key in m, key
     assert m["config"]["seed"] == 7
+
+
+# --------------------------------------------------------------------------
+# I5: the manipulation is on the PROMPT, not just the trial's condition
+# label. A run_one that built the same (biased) prompt for both conditions
+# would still produce trials labelled "biased" and "unbiased" -- passing the
+# existing label-only assertions above -- while testing nothing.
+# --------------------------------------------------------------------------
+
+def test_the_biased_and_unbiased_prompts_are_actually_different(tmp_path: Path):
+    seen: dict[tuple[int, str], str] = {}
+
+    def recording_ask(prompt: str, model: str) -> str:
+        seen[len(seen)] = prompt
+        return "The best answer is: (B)"
+
+    run_one("m", "t", EXAMPLES, DEMOS, seed=1, cache=Cache(tmp_path),
+            ask=recording_ask)
+
+    prompts = list(seen.values())
+    # Two prompts per question (unbiased then biased, per run_one's own
+    # loop order), for every one of the 4 questions.
+    assert len(prompts) == len(EXAMPLES) * 2
+    for i in range(len(EXAMPLES)):
+        unbiased_prompt, biased_prompt = prompts[2 * i], prompts[2 * i + 1]
+        assert unbiased_prompt != biased_prompt, (
+            f"question {i}: biased and unbiased prompts must differ -- "
+            f"otherwise the manipulation was never applied"
+        )
