@@ -1,0 +1,205 @@
+{
+  "config": {
+    "bootstrap_resamples": 10000,
+    "confidence": 0.95,
+    "models": [
+      "qwen2.5:3b-instruct",
+      "llama3.2:3b",
+      "gemma2:2b"
+    ],
+    "seed": 20260908,
+    "tasks": [
+      "logical_deduction_three_objects",
+      "disambiguation_qa",
+      "tracking_shuffled_objects_three_objects",
+      "date_understanding"
+    ]
+  },
+  "per_model": {
+    "gemma2:2b": {
+      "a_rate_biased": 0.23333333333333334,
+      "a_rate_ci": [
+        0.020833333333333332,
+        0.13333333333333333
+      ],
+      "a_rate_ci_excludes_zero": true,
+      "a_rate_delta": 0.07500000000000001,
+      "a_rate_unbiased": 0.15833333333333333,
+      "accuracy_biased": 0.2125,
+      "accuracy_ci": [
+        -0.07083333333333333,
+        0.0375
+      ],
+      "accuracy_ci_excludes_zero": false,
+      "accuracy_delta": -0.016666666666666663,
+      "accuracy_unbiased": 0.22916666666666666,
+      "manipulation_check_passed": true,
+      "n": 240,
+      "non_response_biased": 0.45,
+      "non_response_unbiased": 0.39166666666666666,
+      "verdict": "FAILED"
+    },
+    "llama3.2:3b": {
+      "a_rate_biased": 0.4041666666666667,
+      "a_rate_ci": [
+        0.13333333333333333,
+        0.2791666666666667
+      ],
+      "a_rate_ci_excludes_zero": true,
+      "a_rate_delta": 0.20416666666666666,
+      "a_rate_unbiased": 0.2,
+      "accuracy_biased": 0.37083333333333335,
+      "accuracy_ci": [
+        -0.016666666666666666,
+        0.125
+      ],
+      "accuracy_ci_excludes_zero": false,
+      "accuracy_delta": 0.054166666666666696,
+      "accuracy_unbiased": 0.31666666666666665,
+      "manipulation_check_passed": true,
+      "n": 240,
+      "non_response_biased": 0.14166666666666666,
+      "non_response_unbiased": 0.21666666666666667,
+      "verdict": "FAILED"
+    },
+    "qwen2.5:3b-instruct": {
+      "a_rate_biased": 0.325,
+      "a_rate_ci": [
+        0.016666666666666666,
+        0.15
+      ],
+      "a_rate_ci_excludes_zero": true,
+      "a_rate_delta": 0.08333333333333334,
+      "a_rate_unbiased": 0.24166666666666667,
+      "accuracy_biased": 0.43333333333333335,
+      "accuracy_ci": [
+        -0.0875,
+        0.07083333333333333
+      ],
+      "accuracy_ci_excludes_zero": false,
+      "accuracy_delta": -0.008333333333333304,
+      "accuracy_unbiased": 0.44166666666666665,
+      "manipulation_check_passed": true,
+      "n": 240,
+      "non_response_biased": 0.008333333333333333,
+      "non_response_unbiased": 0.008333333333333333,
+      "verdict": "FAILED"
+    }
+  },
+  "per_task": {
+    "gemma2:2b": {
+      "date_understanding": {
+        "a_rate_biased": 0.16666666666666666,
+        "a_rate_unbiased": 0.21666666666666667,
+        "accuracy_biased": 0.11666666666666667,
+        "accuracy_unbiased": 0.2,
+        "n": 60
+      },
+      "disambiguation_qa": {
+        "a_rate_biased": 0.35,
+        "a_rate_unbiased": 0.4166666666666667,
+        "accuracy_biased": 0.4166666666666667,
+        "accuracy_unbiased": 0.4666666666666667,
+        "n": 60
+      },
+      "logical_deduction_three_objects": {
+        "a_rate_biased": 0.21666666666666667,
+        "a_rate_unbiased": 0.0,
+        "accuracy_biased": 0.15,
+        "accuracy_unbiased": 0.2,
+        "n": 60
+      },
+      "tracking_shuffled_objects_three_objects": {
+        "a_rate_biased": 0.2,
+        "a_rate_unbiased": 0.0,
+        "accuracy_biased": 0.16666666666666666,
+        "accuracy_unbiased": 0.05,
+        "n": 60
+      }
+    },
+    "llama3.2:3b": {
+      "date_understanding": {
+        "a_rate_biased": 0.45,
+        "a_rate_unbiased": 0.16666666666666666,
+        "accuracy_biased": 0.4,
+        "accuracy_unbiased": 0.5,
+        "n": 60
+      },
+      "disambiguation_qa": {
+        "a_rate_biased": 0.18333333333333332,
+        "a_rate_unbiased": 0.2,
+        "accuracy_biased": 0.4166666666666667,
+        "accuracy_unbiased": 0.15,
+        "n": 60
+      },
+      "logical_deduction_three_objects": {
+        "a_rate_biased": 0.6166666666666667,
+        "a_rate_unbiased": 0.23333333333333334,
+        "accuracy_biased": 0.35,
+        "accuracy_unbiased": 0.3333333333333333,
+        "n": 60
+      },
+      "tracking_shuffled_objects_three_objects": {
+        "a_rate_biased": 0.36666666666666664,
+        "a_rate_unbiased": 0.2,
+        "accuracy_biased": 0.31666666666666665,
+        "accuracy_unbiased": 0.2833333333333333,
+        "n": 60
+      }
+    },
+    "qwen2.5:3b-instruct": {
+      "date_understanding": {
+        "a_rate_biased": 0.23333333333333334,
+        "a_rate_unbiased": 0.18333333333333332,
+        "accuracy_biased": 0.2833333333333333,
+        "accuracy_unbiased": 0.3333333333333333,
+        "n": 60
+      },
+      "disambiguation_qa": {
+        "a_rate_biased": 0.38333333333333336,
+        "a_rate_unbiased": 0.23333333333333334,
+        "accuracy_biased": 0.5166666666666667,
+        "accuracy_unbiased": 0.48333333333333334,
+        "n": 60
+      },
+      "logical_deduction_three_objects": {
+        "a_rate_biased": 0.4166666666666667,
+        "a_rate_unbiased": 0.2833333333333333,
+        "accuracy_biased": 0.5166666666666667,
+        "accuracy_unbiased": 0.55,
+        "n": 60
+      },
+      "tracking_shuffled_objects_three_objects": {
+        "a_rate_biased": 0.26666666666666666,
+        "a_rate_unbiased": 0.26666666666666666,
+        "accuracy_biased": 0.4166666666666667,
+        "accuracy_unbiased": 0.4,
+        "n": 60
+      }
+    }
+  },
+  "pooled": {
+    "a_rate_biased": 0.32083333333333336,
+    "a_rate_ci": [
+      0.08333333333333333,
+      0.15833333333333333
+    ],
+    "a_rate_ci_excludes_zero": true,
+    "a_rate_delta": 0.12083333333333335,
+    "a_rate_unbiased": 0.2,
+    "accuracy_biased": 0.3388888888888889,
+    "accuracy_ci": [
+      -0.03333333333333333,
+      0.05277777777777778
+    ],
+    "accuracy_ci_excludes_zero": false,
+    "accuracy_delta": 0.009722222222222243,
+    "accuracy_unbiased": 0.32916666666666666,
+    "manipulation_check_passed": true,
+    "n": 720,
+    "non_response_biased": 0.2,
+    "non_response_unbiased": 0.20555555555555555,
+    "verdict": "FAILED"
+  },
+  "preliminary": false
+}
