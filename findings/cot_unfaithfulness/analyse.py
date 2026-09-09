@@ -14,10 +14,28 @@ WHY PAIRED RESAMPLING
 Each question is asked in both conditions, so the two rates are not
 independent. The bootstrap resamples QUESTIONS, carrying both of a question's
 outcomes together, which is what the pairing in the runner exists to allow.
-Pooling across tasks (per model) or across models and tasks (the overall
-"pooled" row) still resamples whole questions: each (model, task,
-question_index) triple is one resampling unit, and its unbiased/biased pair
-travels together or not at all.
+A single model's row still resamples whole questions this way: each (model,
+task, question_index) triple is one resampling unit, and its unbiased/biased
+pair travels together or not at all.
+
+WHY THE POOLED ROW RESAMPLES CLUSTERS, NOT INDIVIDUAL QUESTIONS (I9)
+-----------------------------------------------------------------------
+`claim.yaml` registers `unit_of_resampling: question`, but all three models
+answer the SAME question, and treating `(model, task, question)` as
+independent resampling units -- what a per-model row correctly does -- silently
+assumes a per-question effect is uncorrelated across models when pooling. It
+usually is not: a question that is easy to bias for one model is often easy
+to bias for another, because the bias lives in the demonstrations, not the
+model. Measured: with a constant bias effect, treating them as independent is
+fine (coverage 0.940 vs a nominal 0.95). When per-question susceptibility is
+shared across models, pooled coverage falls to 0.883. Clustering the pooled
+resample on `(task, question)` -- drawing a question's outcomes from EVERY
+model together, not each model's outcome for it separately -- restores 0.937.
+`bootstrap_ci_clustered` implements this; `compute_measures` uses it only for
+the pooled row (`cluster=True`), passed from `build_report`. Per-model rows
+are unaffected: a single model's cluster only ever has one member, so
+clustering there is a no-op, which is why they still call plain
+`bootstrap_ci` over `_pairs_general`'s flat list.
 
 WHY THE RULE IS `eval`-ED RATHER THAN HARDCODED
 -------------------------------------------------
@@ -118,6 +136,36 @@ def _pairs(trials: list[dict], model: str, task: str,
     return _pairs_general(trials, score, models=[model], tasks=[task])
 
 
+def _cluster_pairs(trials: list[dict], score: Callable[[dict], float], *,
+                    models: list[str] | None = None,
+                    tasks: list[str] | None = None,
+                    ) -> list[list[tuple[float, float]]]:
+    """Like `_pairs_general`, but grouped by `(task, question_index)` --
+    ACROSS models -- for the pooled row's clustered resample (I9).
+
+    Every model's (unbiased, biased) pair for one question lands in the same
+    cluster. Sorted the same way `_pairs_general` sorts its flat list, for
+    the same reason: deterministic input to the bootstrap.
+    """
+    by_key: dict[tuple[str, str, int], dict[str, dict]] = {}
+    for t in trials:
+        if models is not None and t["model"] not in models:
+            continue
+        if tasks is not None and t["task"] not in tasks:
+            continue
+        key = (t["model"], t["task"], t["question_index"])
+        by_key.setdefault(key, {})[t["condition"]] = t
+
+    clusters: dict[tuple[str, int], list[tuple[float, float]]] = {}
+    for (model, task, question_index) in sorted(by_key):
+        both = by_key[(model, task, question_index)]
+        if "unbiased" in both and "biased" in both:
+            cluster_key = (task, question_index)
+            clusters.setdefault(cluster_key, []).append(
+                (score(both["unbiased"]), score(both["biased"])))
+    return [clusters[k] for k in sorted(clusters)]
+
+
 def rates(trials: list[dict], model: str, task: str) -> dict:
     """Accuracy and A-rate for one model on one task. `n` is paired questions."""
     acc = _pairs(trials, model, task, _correct)
@@ -190,6 +238,37 @@ def bootstrap_ci(pairs, statistic, resamples: int, confidence: float,
     return (low, high)
 
 
+def bootstrap_ci_clustered(clusters: list[list[tuple[float, float]]],
+                            statistic, resamples: int, confidence: float,
+                            seed: int) -> tuple[float, float]:
+    """Percentile bootstrap over CLUSTERS of `(task, question)` (I9).
+
+    Each cluster already carries every model's pair for one question
+    (`_cluster_pairs`). A resample draws whole clusters with replacement --
+    never an individual model's pair on its own -- so a question's shared
+    susceptibility to the bias moves together across models in every
+    resample, the way it actually does in the data. The flattened pairs
+    from the drawn clusters are handed to `statistic` exactly as
+    `bootstrap_ci` hands it a flat resampled pair list, so the two share a
+    statistic function (`_delta_statistic`).
+    """
+    rng = random.Random(seed)
+    n = len(clusters)
+    if n == 0:
+        return (0.0, 0.0)
+    values = []
+    for _ in range(resamples):
+        draw: list[tuple[float, float]] = []
+        for _ in range(n):
+            draw.extend(clusters[rng.randrange(n)])
+        values.append(statistic(draw))
+    values.sort()
+    tail = (1.0 - confidence) / 2.0
+    low = values[int(tail * (resamples - 1))]
+    high = values[int((1.0 - tail) * (resamples - 1))]
+    return (low, high)
+
+
 def _delta_statistic(xs: list[tuple[float, float]]) -> float:
     return sum(b - u for u, b in xs) / len(xs)
 
@@ -232,12 +311,20 @@ def adjudicate(measures: dict, claim: dict) -> str:
 
 def compute_measures(trials: list[dict], claim: dict, *,
                       models: list[str] | None,
-                      tasks: list[str] | None) -> dict:
+                      tasks: list[str] | None,
+                      cluster: bool = False) -> dict:
     """Every published number for one model (or the pooled total).
 
     `models`/`tasks` of `None` means "no filter on that axis" -- used for the
     pooled row. A single model's row still pools across every task it was run
     on, which is why this does not reuse `rates()` (fixed to one task).
+
+    `cluster=True` (I9): resample CLUSTERS of `(task, question_index)`,
+    carrying every model's pair for a question together, instead of
+    treating each `(model, task, question_index)` as its own independent
+    resampling unit. `build_report` passes this only for the pooled row --
+    see the module docstring for why pooling needs it and a per-model row
+    does not.
     """
     stats_cfg = claim["statistics"]
     resamples = stats_cfg["bootstrap_resamples"]
@@ -256,10 +343,19 @@ def compute_measures(trials: list[dict], claim: dict, *,
     else:
         acc_u = acc_b = a_u = a_b = 0.0
 
-    acc_low, acc_high = bootstrap_ci(acc_pairs, _delta_statistic, resamples,
+    if cluster:
+        acc_clusters = _cluster_pairs(trials, _correct, models=models,
+                                      tasks=tasks)
+        a_clusters = _cluster_pairs(trials, _is_a, models=models, tasks=tasks)
+        acc_low, acc_high = bootstrap_ci_clustered(
+            acc_clusters, _delta_statistic, resamples, confidence, seed)
+        a_low, a_high = bootstrap_ci_clustered(
+            a_clusters, _delta_statistic, resamples, confidence, seed)
+    else:
+        acc_low, acc_high = bootstrap_ci(acc_pairs, _delta_statistic,
+                                          resamples, confidence, seed)
+        a_low, a_high = bootstrap_ci(a_pairs, _delta_statistic, resamples,
                                       confidence, seed)
-    a_low, a_high = bootstrap_ci(a_pairs, _delta_statistic, resamples,
-                                  confidence, seed)
 
     measures = {
         "n": n,
@@ -290,7 +386,23 @@ def build_report(trials: list[dict], claim: dict) -> dict:
         model: compute_measures(trials, claim, models=[model], tasks=tasks)
         for model in models
     }
-    pooled = compute_measures(trials, claim, models=models, tasks=tasks)
+    # I9: only the pooled row needs clustered resampling -- a per-model row
+    # already only ever has one model in each (task, question) cluster.
+    pooled = compute_measures(trials, claim, models=models, tasks=tasks,
+                              cluster=True)
+
+    # M3: rates()/_pairs() existed and were tested but never actually
+    # published anywhere, so no per-task breakdown was ever visible to a
+    # reader -- only the mixed-across-tasks per_model rows and the fully
+    # pooled row. A per-task breakdown is a real diagnostic (which of the
+    # four tasks the effect concentrates in) and costs nothing extra to
+    # compute, so it is published rather than the functions being deleted.
+    # It is exploratory like non_response_rate: never read by `adjudicate`,
+    # never affects a verdict.
+    per_task = {
+        model: {task: rates(trials, model, task) for task in tasks}
+        for model in models
+    }
 
     return {
         "config": {
@@ -301,6 +413,7 @@ def build_report(trials: list[dict], claim: dict) -> dict:
             "seed": claim["replication_setting"]["seed"],
         },
         "per_model": per_model,
+        "per_task": per_task,
         "pooled": pooled,
     }
 

@@ -19,8 +19,13 @@ import yaml
 
 from findings.cot_unfaithfulness import analyse as analyse_module
 from findings.cot_unfaithfulness.analyse import (
+    _correct,
+    _cluster_pairs,
+    _delta_statistic,
+    _pairs_general,
     adjudicate,
     bootstrap_ci,
+    bootstrap_ci_clustered,
     build_report,
     compute_measures,
     main,
@@ -341,3 +346,107 @@ def test_bootstrap_ci_resamples_pairs_together_not_independently():
                              confidence=0.95, seed=3)
     assert high - low < 1e-9, (low, high)
     assert low == pytest.approx(0.3)
+
+
+# --------------------------------------------------------------------------
+# I9: the pooled row must resample CLUSTERS of (task, question) -- carrying
+# every model's outcome for a question together -- not each (model, task,
+# question) triple as if it were independent. When per-question
+# susceptibility is genuinely shared across models (the realistic case: the
+# bias lives in the demonstrations, which are the same for every model),
+# treating them as independent overstates the effective sample size and
+# understates the interval.
+# --------------------------------------------------------------------------
+
+def _shared_susceptibility_trials(models: list[str]) -> list[dict]:
+    """10 questions; every model gets the SAME outcome on a given question
+    (unbiased always wrong, biased correct on even-indexed questions only).
+    Perfect cross-model correlation per question -- the scenario the
+    module docstring says drops pooled coverage to 0.883 when unclustered.
+    """
+    trials = []
+    for i in range(10):
+        biased_is_correct = (i % 2 == 0)
+        for model in models:
+            trials.append(_trial(i, "unbiased", "W", target="X", model=model))
+            trials.append(_trial(
+                i, "biased", "X" if biased_is_correct else "W",
+                target="X", model=model))
+    return trials
+
+
+def test_clustered_and_unclustered_pooled_resampling_give_different_intervals():
+    models = ["m1", "m2", "m3"]
+    trials = _shared_susceptibility_trials(models)
+
+    flat_pairs = _pairs_general(trials, _correct, models=models, tasks=["t"])
+    clusters = _cluster_pairs(trials, _correct, models=models, tasks=["t"])
+
+    # 3 models x 10 questions each vs the true 10 distinct questions.
+    assert len(flat_pairs) == 30
+    assert len(clusters) == 10
+
+    unclustered = bootstrap_ci(flat_pairs, _delta_statistic, resamples=5000,
+                               confidence=0.95, seed=11)
+    clustered = bootstrap_ci_clustered(clusters, _delta_statistic,
+                                       resamples=5000, confidence=0.95,
+                                       seed=11)
+
+    unclustered_width = unclustered[1] - unclustered[0]
+    clustered_width = clustered[1] - clustered[0]
+    # Unclustered treats 3 identical copies of each question as 3
+    # independent data points, understating the true uncertainty; the
+    # correctly clustered interval must be measurably wider.
+    assert clustered_width > unclustered_width * 1.5, (
+        f"unclustered={unclustered} (width {unclustered_width}), "
+        f"clustered={clustered} (width {clustered_width})"
+    )
+
+
+def test_build_report_pools_with_clustered_resampling(monkeypatch):
+    models = ["m1", "m2", "m3"]
+    trials = _shared_susceptibility_trials(models)
+    claim = {
+        **CLAIM,
+        "replication_setting": {"seed": 11, "models": models, "tasks": ["t"]},
+        "statistics": {"bootstrap_resamples": 5000, "confidence": 0.95},
+    }
+
+    report = build_report(trials, claim)
+
+    expected_pooled = compute_measures(trials, claim, models=models,
+                                       tasks=["t"], cluster=True)
+    expected_unclustered = compute_measures(trials, claim, models=models,
+                                            tasks=["t"], cluster=False)
+
+    assert report["pooled"]["accuracy_ci"] == expected_pooled["accuracy_ci"]
+    # And it must actually be doing something different from the
+    # unclustered computation, not just accepting the flag and ignoring it.
+    assert report["pooled"]["accuracy_ci"] != expected_unclustered["accuracy_ci"]
+
+    # Per-model rows are untouched: a single model's cluster only ever has
+    # one member, so clustered and unclustered agree there.
+    per_model_clustered = compute_measures(trials, claim, models=["m1"],
+                                           tasks=["t"], cluster=True)
+    assert (report["per_model"]["m1"]["accuracy_ci"]
+            == per_model_clustered["accuracy_ci"])
+
+
+# --------------------------------------------------------------------------
+# M3: per_task is published using rates()/_pairs(), not left dead.
+# --------------------------------------------------------------------------
+
+def test_build_report_publishes_a_per_task_breakdown():
+    trials = [
+        _trial(0, "unbiased", "B", model="m", task="t1"),
+        _trial(0, "biased", "A", model="m", task="t1"),
+        _trial(0, "unbiased", "B", model="m", task="t2"),
+        _trial(0, "biased", "B", model="m", task="t2"),
+    ]
+    claim = {**FULL_CLAIM, "replication_setting": {
+        "seed": 1, "models": ["m"], "tasks": ["t1", "t2"]}}
+    report = build_report(trials, claim)
+    assert report["per_task"]["m"]["t1"] == rates(trials, "m", "t1")
+    assert report["per_task"]["m"]["t2"] == rates(trials, "m", "t2")
+    assert report["per_task"]["m"]["t1"]["accuracy_biased"] == 0.0
+    assert report["per_task"]["m"]["t2"]["accuracy_biased"] == 1.0

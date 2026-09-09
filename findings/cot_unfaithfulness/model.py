@@ -166,13 +166,23 @@ def ask_ollama(prompt: str, model: str) -> str:
         raise ModelError(f"{model}: {exc}") from exc
 
 
-def available_models() -> list[str]:
+def available_models() -> dict[str, str]:
+    """Model name -> content digest, from the local Ollama daemon.
+
+    M1: this used to return just the list of names, and nothing called it.
+    A name is not a stable identity -- Ollama tags are mutable, so
+    `gemma2:2b` pulled a year from now is not necessarily the same weights
+    as `gemma2:2b` today. The digest is; `run.manifest` records it per
+    model so a later reader can tell whether a re-run actually used "the
+    same model" or just the same name.
+    """
     try:
         with urllib.request.urlopen("http://127.0.0.1:11434/api/tags",
                                     timeout=10) as response:
-            return [m["name"] for m in json.loads(response.read())["models"]]
+            models = json.loads(response.read())["models"]
     except Exception as exc:
         raise ModelError(f"cannot list models: {exc}") from exc
+    return {m["name"]: m.get("digest", "") for m in models}
 
 
 def generate(model: str, prompt: str, cache: Cache, ask=None,
