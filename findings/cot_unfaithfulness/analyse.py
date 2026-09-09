@@ -438,12 +438,26 @@ def _fmt_ci(ci) -> str:
 
 def format_table(report: dict) -> str:
     cfg = report["config"]
-    lines = [
+    preliminary = report.get("preliminary", False)
+    lines = []
+    if preliminary:
+        # I10: a smoke run's trials file is otherwise indistinguishable
+        # from the real one. Every output gets this marking -- the printed
+        # table, measurements.json (via report["preliminary"]), and here,
+        # each row's own verdict column, not just a banner someone could
+        # scroll past.
+        lines.append(
+            "*** PRELIMINARY: this run did not use the pre-registered "
+            "examples_per_task (see raw/manifest.json: limited=true). "
+            "No verdict below should be treated as final. ***"
+        )
+        lines.append("")
+    lines.append(
         f"models={cfg['models']} tasks={cfg['tasks']} "
         f"resamples={cfg['bootstrap_resamples']} confidence={cfg['confidence']} "
-        f"seed={cfg['seed']}",
-        "",
-    ]
+        f"seed={cfg['seed']}"
+    )
+    lines.append("")
     header = (
         f"{'row':<24} {'n':>4} {'acc_unb':>8} {'acc_bia':>8} {'acc_d':>8} "
         f"{'acc_ci':>16} {'a_unb':>7} {'a_bia':>7} {'a_d':>7} "
@@ -453,6 +467,9 @@ def format_table(report: dict) -> str:
     lines.append("-" * len(header))
 
     def row(name: str, m: dict) -> str:
+        verdict = m["verdict"]
+        if preliminary:
+            verdict = f"PRELIM:{verdict}"
         return (
             f"{name:<24} {m['n']:>4} {_fmt(m['accuracy_unbiased']):>8} "
             f"{_fmt(m['accuracy_biased']):>8} {_fmt(m['accuracy_delta']):>8} "
@@ -460,7 +477,7 @@ def format_table(report: dict) -> str:
             f"{_fmt(m['a_rate_biased']):>7} {_fmt(m['a_rate_delta']):>7} "
             f"{_fmt_ci(m['a_rate_ci']):>16} {_fmt(m['non_response_unbiased']):>7} "
             f"{_fmt(m['non_response_biased']):>7} "
-            f"{_fmt(m['manipulation_check_passed']):>7} {m['verdict']:>12}"
+            f"{_fmt(m['manipulation_check_passed']):>7} {verdict:>12}"
         )
 
     for model, measures in report["per_model"].items():
@@ -518,6 +535,92 @@ def _load_trials(path: Path) -> list[dict]:
     return trials
 
 
+# --------------------------------------------------------------------------
+# I7: --verify must not pass over doctored raw trials
+# --------------------------------------------------------------------------
+
+def _trial_key(t: dict) -> tuple:
+    return (t["model"], t["task"], t["question_index"], t["condition"])
+
+
+def find_duplicate_trial_keys(trials: list[dict]) -> list[str]:
+    """(model, task, question_index, condition) keys that appear more than
+    once in `trials`.
+
+    `_pairs_general`'s `by_key.setdefault(key, {})[condition] = t` silently
+    keeps only the LAST trial for a duplicated key -- appending a doctored
+    line with a different answer for an existing key overrides the
+    original with no error and no change to `n`. This must be caught before
+    a report is ever built from the trials, not discovered by noticing a
+    number moved.
+    """
+    counts: dict[tuple, int] = {}
+    for t in trials:
+        key = _trial_key(t)
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        f"{key[0]} / {key[1]} / question {key[2]} / {key[3]}: appears "
+        f"{n} times (expected exactly once)"
+        for key, n in sorted(counts.items()) if n > 1
+    ]
+
+
+def find_unpaired_trials(trials: list[dict]) -> list[tuple[str, str, int]]:
+    """(model, task, question_index) triples with only ONE condition
+    present, instead of both.
+
+    Every question is meant to be asked in both conditions (run.run_one
+    enforces this by construction). A trial missing its partner -- most
+    likely from someone deleting a line by hand -- silently drops that
+    whole question from every paired statistic and lowers the effective n
+    with no warning. Reported as a count; not fatal on its own, since a
+    genuinely partial/interrupted run should still be inspectable.
+    """
+    by_key: dict[tuple[str, str, int], set[str]] = {}
+    for t in trials:
+        key = (t["model"], t["task"], t["question_index"])
+        by_key.setdefault(key, set()).add(t["condition"])
+    return sorted(key for key, conditions in by_key.items()
+                  if conditions != {"unbiased", "biased"})
+
+
+def expected_n_per_model(claim: dict) -> int | None:
+    """`examples_per_task` times the number of tasks -- the paired question
+    count a fully, non-limited run should produce for every model.
+
+    None if the claim does not register `examples_per_task` at all: there
+    is nothing to compare against, so the check this feeds is skipped
+    rather than raising.
+    """
+    setting = claim["replication_setting"]
+    if "examples_per_task" not in setting or "tasks" not in setting:
+        return None
+    return setting["examples_per_task"] * len(setting["tasks"])
+
+
+def _load_manifest(raw_dir: Path) -> dict | None:
+    path = raw_dir / "manifest.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def is_limited_run(raw_dir: Path) -> bool:
+    """I10: was this raw/ produced with something other than the
+    pre-registered `examples_per_task` (e.g. a smoke run's --limit)?
+
+    A missing manifest.json cannot be told apart from a full run by this
+    function -- it returns False, the same as an explicitly unlimited run,
+    rather than guessing. run.main() always writes one; a raw/trials.jsonl
+    with no manifest.json at all is itself something a reader should be
+    suspicious of, just not something this function decides for them.
+    """
+    manifest = _load_manifest(raw_dir)
+    if manifest is None:
+        return False
+    return bool(manifest.get("limited", False))
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     import yaml
@@ -542,7 +645,43 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     trials = _load_trials(trials_path)
 
+    # I7: refuse to analyse over a doctored raw file. A duplicate key means
+    # some (model, task, question_index, condition) has two different
+    # recorded answers and only one can be seen by the statistics below --
+    # which one is silently whichever line came last in the file. This must
+    # be caught before build_report, not inferred afterwards.
+    duplicates = find_duplicate_trial_keys(trials)
+    if duplicates:
+        print("refusing to analyse: raw/trials.jsonl has duplicate trial "
+              "keys:", file=sys.stderr)
+        for d in duplicates:
+            print(f"  {d}", file=sys.stderr)
+        return 1
+
+    unpaired = find_unpaired_trials(trials)
+    if unpaired:
+        print(f"NOTE: {len(unpaired)} question(s) have only one condition "
+              f"recorded (missing their unbiased/biased partner) and are "
+              f"excluded from every paired statistic below.", file=sys.stderr)
+
+    limited = is_limited_run(RAW)
+
     report = build_report(trials, claim)
+    report["preliminary"] = limited
+
+    # I7: n should equal the pre-registered examples_per_task * len(tasks)
+    # for every model on a full, non-limited run. A silent mismatch (a
+    # dropped trial, a duplicate that ate a pair, a truncated file) would
+    # otherwise only show up as "n" in the table, easy to skim past.
+    expected = expected_n_per_model(claim)
+    if not limited and expected is not None:
+        for model, measures in report["per_model"].items():
+            if measures["n"] != expected:
+                print(f"WARNING: {model}: n={measures['n']} paired "
+                      f"questions, expected {expected} "
+                      f"(examples_per_task x tasks) for a full run",
+                      file=sys.stderr)
+
     print(format_table(report))
 
     measurements_path = RESULTS / "measurements.json"

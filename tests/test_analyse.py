@@ -28,6 +28,10 @@ from findings.cot_unfaithfulness.analyse import (
     bootstrap_ci_clustered,
     build_report,
     compute_measures,
+    expected_n_per_model,
+    find_duplicate_trial_keys,
+    find_unpaired_trials,
+    is_limited_run,
     main,
     non_response_rates,
     rates,
@@ -450,3 +454,183 @@ def test_build_report_publishes_a_per_task_breakdown():
     assert report["per_task"]["m"]["t2"] == rates(trials, "m", "t2")
     assert report["per_task"]["m"]["t1"]["accuracy_biased"] == 0.0
     assert report["per_task"]["m"]["t2"]["accuracy_biased"] == 1.0
+
+
+# --------------------------------------------------------------------------
+# I7: --verify must not pass over doctored raw trials
+# --------------------------------------------------------------------------
+
+def test_find_duplicate_trial_keys_is_empty_for_clean_trials():
+    trials = [_trial(0, "unbiased", "B"), _trial(0, "biased", "A")]
+    assert find_duplicate_trial_keys(trials) == []
+
+
+def test_find_duplicate_trial_keys_names_the_doctored_key():
+    trials = [
+        _trial(0, "unbiased", "B"),
+        _trial(0, "biased", "A"),
+        _trial(0, "biased", "C"),  # appended, different answer, same key
+    ]
+    problems = find_duplicate_trial_keys(trials)
+    assert len(problems) == 1
+    assert "question 0" in problems[0]
+    assert "biased" in problems[0]
+
+
+def test_find_unpaired_trials_is_empty_when_every_question_has_both():
+    trials = [_trial(0, "unbiased", "B"), _trial(0, "biased", "A")]
+    assert find_unpaired_trials(trials) == []
+
+
+def test_find_unpaired_trials_reports_a_missing_partner():
+    trials = [
+        _trial(0, "unbiased", "B"), _trial(0, "biased", "A"),
+        _trial(1, "unbiased", "B"),  # no biased partner
+    ]
+    unpaired = find_unpaired_trials(trials)
+    assert unpaired == [("m", "t", 1)]
+
+
+def test_expected_n_per_model_multiplies_examples_per_task_by_tasks():
+    claim = {"replication_setting": {"examples_per_task": 60,
+                                     "tasks": ["a", "b", "c", "d"]}}
+    assert expected_n_per_model(claim) == 240
+
+
+def test_expected_n_per_model_is_none_when_not_registered():
+    claim = {"replication_setting": {"tasks": ["a"]}}
+    assert expected_n_per_model(claim) is None
+
+
+def test_main_refuses_to_analyse_duplicate_trials(tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    # Append a doctored line: same key as an existing trial, different answer.
+    trials_path = tmp_path / "raw" / "trials.jsonl"
+    doctored = json.loads(trials_path.read_text(encoding="utf-8").splitlines()[0])
+    doctored["answer"] = "Z"
+    with trials_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(doctored) + "\n")
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "duplicate trial keys" in captured.err
+    assert not (tmp_path / "results" / "measurements.json").exists()
+
+
+def test_main_refuses_to_verify_over_duplicate_trials(tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    assert main([]) == 0  # clean write first
+
+    trials_path = tmp_path / "raw" / "trials.jsonl"
+    doctored = json.loads(trials_path.read_text(encoding="utf-8").splitlines()[0])
+    doctored["answer"] = "Z"
+    with trials_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(doctored) + "\n")
+
+    capsys.readouterr()
+    exit_code = main(["--verify"])
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "duplicate trial keys" in captured.err
+
+
+def test_main_warns_but_still_analyses_on_unpaired_trials(
+        tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    trials_path = tmp_path / "raw" / "trials.jsonl"
+    lines = trials_path.read_text(encoding="utf-8").splitlines()
+    # Drop one line's partner: remove the SECOND line (a "biased" trial),
+    # leaving its "unbiased" sibling unpaired.
+    remaining = [lines[0]] + lines[2:]
+    trials_path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "1 question(s)" in captured.err or "missing their" in captured.err
+
+
+def test_main_warns_when_n_does_not_match_pre_registered_examples_per_task(
+        tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    claim = _fixture_claim()
+    claim["replication_setting"]["examples_per_task"] = 8  # matches m1/m2's 8
+    (tmp_path / "claim.yaml").write_text(yaml.safe_dump(claim), encoding="utf-8")
+
+    # Drop one paired question for m1 only, so its n becomes 7, not 8.
+    trials_path = tmp_path / "raw" / "trials.jsonl"
+    trials = [json.loads(line) for line in
+              trials_path.read_text(encoding="utf-8").splitlines()]
+    trials = [t for t in trials
+              if not (t["model"] == "m1" and t["question_index"] == 0)]
+    trials_path.write_text(
+        "\n".join(json.dumps(t) for t in trials) + "\n", encoding="utf-8")
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "WARNING" in captured.err
+    assert "m1" in captured.err
+
+
+def test_main_does_not_warn_about_n_when_run_is_limited(
+        tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    claim = _fixture_claim()
+    claim["replication_setting"]["examples_per_task"] = 999  # deliberately wrong
+    (tmp_path / "claim.yaml").write_text(yaml.safe_dump(claim), encoding="utf-8")
+    (tmp_path / "raw" / "manifest.json").write_text(
+        json.dumps({"limited": True}), encoding="utf-8")
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "WARNING" not in captured.err
+
+
+# --------------------------------------------------------------------------
+# I10: a limited (smoke) run must mark every output PRELIMINARY
+# --------------------------------------------------------------------------
+
+def test_is_limited_run_false_when_no_manifest(tmp_path):
+    assert is_limited_run(tmp_path) is False
+
+
+def test_is_limited_run_reads_the_manifest_flag(tmp_path):
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"limited": True}), encoding="utf-8")
+    assert is_limited_run(tmp_path) is True
+
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"limited": False}), encoding="utf-8")
+    assert is_limited_run(tmp_path) is False
+
+
+def test_main_marks_the_report_and_table_preliminary_when_limited(
+        tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    (tmp_path / "raw" / "manifest.json").write_text(
+        json.dumps({"limited": True}), encoding="utf-8")
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "PRELIMINARY" in captured.out
+
+    data = json.loads(
+        (tmp_path / "results" / "measurements.json").read_text(encoding="utf-8"))
+    assert data["preliminary"] is True
+
+
+def test_main_does_not_mark_preliminary_when_not_limited(
+        tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "PRELIMINARY" not in captured.out
+
+    data = json.loads(
+        (tmp_path / "results" / "measurements.json").read_text(encoding="utf-8"))
+    assert data["preliminary"] is False
