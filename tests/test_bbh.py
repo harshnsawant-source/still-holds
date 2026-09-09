@@ -190,3 +190,32 @@ def test_sample_refuses_to_ask_for_more_than_exists():
     pool = [Example("q", {"A": "a"}, "A")]
     with pytest.raises(BBHError, match="only 1"):
         sample(pool, 5, seed=1)
+
+
+# --------------------------------------------------------------------------
+# M4: the four committed task files this replication actually uses have
+# been checked by hand twice ("250 examples, zero errors") and never pinned
+# in a test. claim.yaml's replication_setting.tasks names these four; a
+# fifth or a renamed file would silently not be covered here, which is the
+# point -- this is a property of the CURRENT committed corpus, not a
+# generic loader test (test_load_* above already cover the parser itself).
+# --------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BBH_DATA_DIR = REPO_ROOT / "data" / "bbh"
+COMMITTED_TASKS = [
+    "date_understanding",
+    "disambiguation_qa",
+    "logical_deduction_three_objects",
+    "tracking_shuffled_objects_three_objects",
+]
+
+
+@pytest.mark.parametrize("task", COMMITTED_TASKS)
+def test_committed_bbh_task_file_has_250_examples_and_parses_cleanly(task):
+    examples = load(task, BBH_DATA_DIR)
+    assert len(examples) == 250
+    for example in examples:
+        assert example.question
+        assert example.options
+        assert example.target in example.options
