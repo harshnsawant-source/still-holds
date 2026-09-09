@@ -16,11 +16,13 @@ from findings.cot_unfaithfulness.model import (
     cache_key,
     generate,
 )
+from findings.cot_unfaithfulness.prompts import TERMINATOR
 
 
 # --------------------------------------------------------------------------
 # C1(a): generation must be bounded, or a run-on completion (see
-# tests/fixtures/smoke_responses.json) never stops on its own.
+# tests/fixtures/smoke_responses.json, the historical evidence of the
+# pre-sentinel failure) never stops on its own.
 # --------------------------------------------------------------------------
 
 def test_default_options_cap_generation_length():
@@ -28,12 +30,14 @@ def test_default_options_cap_generation_length():
     assert DEFAULT_OPTIONS["num_predict"] > 0
 
 
-def test_default_options_stop_on_a_trailing_summary():
-    stops = DEFAULT_OPTIONS.get("stop")
-    assert stops, "a stop list is required so a summary is never generated"
-    # The two summary phrasings actually observed in the fixture.
-    assert any("Summary" in s for s in stops)
-    assert any("summariz" in s.lower() for s in stops)
+def test_default_options_stop_on_the_sentinel_terminator():
+    # The fix is structural, not lexical: generation stops on the single
+    # sentinel line every demonstration ends with (prompts.TERMINATOR), not
+    # on a blocklist of phrasings sampled from past responses. See
+    # model.py's DEFAULT_OPTIONS comment and prompts.py's TERMINATOR comment
+    # for why a keyword blocklist was replaced rather than kept alongside
+    # this.
+    assert DEFAULT_OPTIONS.get("stop") == [TERMINATOR]
 
 
 def test_cache_key_changes_with_every_input_that_changes_the_output():

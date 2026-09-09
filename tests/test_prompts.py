@@ -12,6 +12,7 @@ import pytest
 
 from findings.cot_unfaithfulness.bbh import Example
 from findings.cot_unfaithfulness.prompts import (
+    TERMINATOR,
     bias_to_a,
     build,
     extract_answer,
@@ -87,6 +88,29 @@ def test_demonstration_answers_are_not_all_a_when_unbiased():
     answers = [line for line in text.splitlines()
                if line.startswith("The best answer is:")]
     assert len({a.strip()[-3:] for a in answers}) > 1
+
+
+@pytest.mark.parametrize("biased", [False, True])
+def test_terminator_follows_every_demonstration_but_not_the_question(biased):
+    # The sentinel fix for run-on generation (see prompts.TERMINATOR and
+    # model.DEFAULT_OPTIONS): every demonstration must end with TERMINATOR
+    # on its own line, teaching the model the pattern by repetition, and the
+    # test question block must contain it nowhere - it is the thing the
+    # model is meant to produce after answering, not something it is shown
+    # for the question it must actually think through.
+    demos = [EX, Example("q2", {"A": "p", "B": "q"}, "B")]
+    question = Example("q3", {"A": "x", "B": "y", "C": "z"}, "B")
+    text = build(demos, question, biased=biased, seed=1)
+    blocks = text.split("\n\n")
+    assert len(blocks) == len(demos) + 1
+
+    demo_blocks, question_block = blocks[:-1], blocks[-1]
+    for block in demo_blocks:
+        assert block.endswith(f"\n{TERMINATOR}"), block
+
+    assert TERMINATOR not in question_block
+    assert question_block.endswith("Let's think step by step.")
+    assert text.count(TERMINATOR) == len(demos)
 
 
 def test_build_is_deterministic_for_a_seed():
@@ -207,6 +231,51 @@ def test_extract_answer_against_the_smoke_fixture(index):
 
 def test_fixture_has_exactly_24_responses():
     assert len(_load_fixture()) == 24
+
+
+def test_extractor_fallback_on_known_bad_pre_sentinel_fixture_cases():
+    """PINS the CURRENT extractor's behaviour on 3 of the fixture responses,
+    all real completions gathered BEFORE prompts.TERMINATOR existed. Each is
+    a run-on that wanders into a second question with no "Summary of..."
+    header or other lexical marker at all - just the model answering more
+    questions in its own words - so the old phrase-blocklist stop list did
+    nothing for them, and no tier of extract_answer can recover the model's
+    real, buried answer to the question actually asked:
+
+      index  6  disambiguation_qa  unbiased  target=B  -> extracts A
+      index  7  disambiguation_qa  biased    target=B  -> extracts A
+      index 13  tracking_shuffled_objects_three_objects biased target=B
+                                                          -> extracts C
+
+    THIS IS THE FALLBACK PATH, NOT THE PRIMARY DEFENCE. The primary defence
+    against run-on is structural: prompts.TERMINATOR, the sentinel line
+    every demonstration now ends with (see model.DEFAULT_OPTIONS and the
+    TERMINATOR comment in prompts.py), stops generation before a model can
+    ever produce text shaped like these three responses. This test exists to
+    document what extract_answer does if such text ever slips through
+    anyway - e.g. a model that fails to reproduce the sentinel - not to
+    claim the extractor itself solves run-on. It is fine and expected that
+    it still gets all three wrong here; that is exactly why they must never
+    be generated in the first place.
+    """
+    cases = _load_fixture()
+    known_bad = {
+        6: "A",
+        7: "A",
+        13: "C",
+    }
+    for index, expected_wrong_answer in known_bad.items():
+        case = cases[index]
+        got = extract_answer(case["response"], set(case["valid"]))
+        assert got == expected_wrong_answer, (
+            f"fixture[{index}] {case['model']} {case['task']} "
+            f"{case['condition']}"
+        )
+        assert got != case["target"], (
+            f"fixture[{index}]: expected to pin a MIS-extraction against "
+            f"target {case['target']!r}; if this now matches, the fallback "
+            f"behaviour changed and this test's premise is stale"
+        )
 
 
 def test_bare_letter_no_longer_fabricates_an_answer_from_ordinary_prose():

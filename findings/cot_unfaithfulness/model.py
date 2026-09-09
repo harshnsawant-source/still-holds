@@ -37,60 +37,68 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from findings.cot_unfaithfulness.prompts import TERMINATOR
+
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 
 # WHY THESE OPTIONS, PRECISELY
 # -----------------------------
-# Chosen against tests/fixtures/smoke_responses.json, 24 real completions from
-# the three replication models. Without a cap or a stop list, a small model
-# does not reliably stop once it has answered the question we asked: 6 of the
-# 24 fixture responses keep going past their own answer, either re-deriving
-# the few-shot demonstrations from scratch or appending a fabricated "Summary
-# of Answers" that silently relabels a demonstration's answer as if it were
-# the real one. Under the biased condition every demonstration's answer is
-# forced to (A), so a model that trails off into summarising them is scored
-# as "answered A" regardless of what it actually concluded about the test
-# question - manufacturing exactly the effect this replication is testing
+# A small model does not reliably stop once it has answered the question we
+# asked: given tests/fixtures/smoke_responses.json (24 real, uncapped
+# completions from the three replication models), 6 of the 24 keep going
+# past their own answer, either re-deriving the few-shot demonstrations from
+# scratch or appending a summary that silently relabels a demonstration's
+# answer as if it were the real one. Under the biased condition every
+# demonstration's answer is forced to (A), so a model that wanders into one
+# of these is scored as "answered A" regardless of what it actually
+# concluded - manufacturing exactly the effect this replication is testing
 # for, from generation length alone.
 #
-# `stop`: a short list of literal markers that only ever showed up in the
-# fixture AFTER a model had already finished answering the real question -
-# never before it, and never inside legitimate single-question reasoning
-# about these four BBH tasks (checked: zero of the 24 fixture responses use
-# the word "summary" or "summarizing" for anything other than a trailing
-# recap). Ollama's `stop` is a literal, case-sensitive substring match on the
-# growing completion, so no one string generalises across models; several
-# observed castings ("Summary of Answers", "Summary of Best Answers",
-# "So, summarizing all answers:", "summarizing") are listed explicitly rather
-# than guessed at. This is deliberately narrow - it removes the one failure
-# mode that fabricates a false biasing signal at the source - not a general
-# solution to run-on, which is why extraction (prompts.extract_answer) is
-# still hardened independently to not trust a trailing summary even when one
-# slips through.
+# A previous version of this fix used `stop` as a blocklist of the specific
+# summary phrasings observed in those 24 responses ("Summary of Answers",
+# "In summary", ...). That is the wrong shape of solution: re-running the
+# CURRENT extractor over the same fixture found 3 more run-on responses the
+# blocklist did nothing for, because they wandered into a second question
+# with no header or summary phrasing at all - just different words. At 1440
+# generations, models will run on in phrasings nobody sampled, and no
+# finite keyword list can be complete against that.
 #
-# `num_predict`: 1024 tokens. The largest fixture response that legitimately
-# needs its full length - working through every demonstration in order and
-# only answering the real question in its last sentence, with no summary
-# artifact - is 2644 characters (~660 tokens, gemma2:2b on disambiguation_qa,
-# unbiased). 1024 leaves that comfortable headroom while still bounding the
-# worst observed cases (up to 6148 characters, ~1537 tokens, uncapped) well
-# below their current length. A response that still runs past 1024 tokens
-# is cut off mid-reasoning rather than silently continuing forever; the
-# extractor already returns `None` for text with no stated answer, which is
-# the honest outcome for a truncated response, not a wrong one.
+# `stop`: prompts.TERMINATOR, the sentinel line every demonstration ends
+# with (see prompts.py for the full reasoning and the terminator's own
+# rejected alternatives). This is structural, not lexical: a model that has
+# seen the pattern six times in-context emits the terminator once it has
+# stated its own answer, and generation halts there - it cannot reach a
+# second question or a summary, whatever words it would have used, because
+# there is no length of run-on text for the stop match to wait through. The
+# eight-phrase blocklist above is deliberately not kept alongside this: if
+# the sentinel works, the blocklist is redundant; if it doesn't, keeping the
+# blocklist would silently hide that failure behind a lexical patch instead
+# of surfacing it. tests/fixtures/smoke_responses.json remains as the
+# historical evidence of the pre-sentinel failure, and prompts.extract_answer
+# is still hardened independently as a fallback (see its docstring) for the
+# same reason a stop sequence alone was never a complete answer.
+#
+# `num_predict`: 2048 tokens, raised from 1024. The 1024 figure was sized
+# against the same fixture's largest LEGITIMATE single-question response
+# (2644 characters, ~660 tokens, gemma2:2b on disambiguation_qa, unbiased) -
+# but that fixture also contains the 6 run-on responses, up to 6148
+# characters (~1537 tokens) uncapped, which the old cap was silently
+# competing against too: at 1024 tokens, a mid-length run-on can still finish
+# without ever running out of budget, so the cap alone never was what
+# stopped run-on - the blocklist was doing that work, badly. With the
+# sentinel now doing the actual stopping, `num_predict` only has to cover
+# legitimate reasoning about the one real question, and does not have to
+# double as an emergency brake against a multi-question response. 2048
+# leaves roughly 3x headroom over the 660-token legitimate maximum observed
+# in this fixture, for a model that reasons more verbosely about a harder
+# question than any of the 24 sampled, while still being a real bound: a
+# response that runs past it and never stated an answer is truncated and
+# correctly scored `None` by the extractor rather than silently misread, and
+# `None` is the honest outcome for a truncated response, not a wrong one.
 DEFAULT_OPTIONS = {
     "temperature": 0,
-    "num_predict": 1024,
-    "stop": [
-        "\nSummary of",
-        "\nSUMMARY OF",
-        "\n### Summary",
-        "\nsummarizing",
-        "\nSummarizing",
-        "\nSo, summarizing",
-        "\nIn summary",
-        "\nTo summarize",
-    ],
+    "num_predict": 2048,
+    "stop": [TERMINATOR],
 }
 
 
