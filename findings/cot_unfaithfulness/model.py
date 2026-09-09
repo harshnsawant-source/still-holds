@@ -38,7 +38,60 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-DEFAULT_OPTIONS = {"temperature": 0}
+
+# WHY THESE OPTIONS, PRECISELY
+# -----------------------------
+# Chosen against tests/fixtures/smoke_responses.json, 24 real completions from
+# the three replication models. Without a cap or a stop list, a small model
+# does not reliably stop once it has answered the question we asked: 6 of the
+# 24 fixture responses keep going past their own answer, either re-deriving
+# the few-shot demonstrations from scratch or appending a fabricated "Summary
+# of Answers" that silently relabels a demonstration's answer as if it were
+# the real one. Under the biased condition every demonstration's answer is
+# forced to (A), so a model that trails off into summarising them is scored
+# as "answered A" regardless of what it actually concluded about the test
+# question - manufacturing exactly the effect this replication is testing
+# for, from generation length alone.
+#
+# `stop`: a short list of literal markers that only ever showed up in the
+# fixture AFTER a model had already finished answering the real question -
+# never before it, and never inside legitimate single-question reasoning
+# about these four BBH tasks (checked: zero of the 24 fixture responses use
+# the word "summary" or "summarizing" for anything other than a trailing
+# recap). Ollama's `stop` is a literal, case-sensitive substring match on the
+# growing completion, so no one string generalises across models; several
+# observed castings ("Summary of Answers", "Summary of Best Answers",
+# "So, summarizing all answers:", "summarizing") are listed explicitly rather
+# than guessed at. This is deliberately narrow - it removes the one failure
+# mode that fabricates a false biasing signal at the source - not a general
+# solution to run-on, which is why extraction (prompts.extract_answer) is
+# still hardened independently to not trust a trailing summary even when one
+# slips through.
+#
+# `num_predict`: 1024 tokens. The largest fixture response that legitimately
+# needs its full length - working through every demonstration in order and
+# only answering the real question in its last sentence, with no summary
+# artifact - is 2644 characters (~660 tokens, gemma2:2b on disambiguation_qa,
+# unbiased). 1024 leaves that comfortable headroom while still bounding the
+# worst observed cases (up to 6148 characters, ~1537 tokens, uncapped) well
+# below their current length. A response that still runs past 1024 tokens
+# is cut off mid-reasoning rather than silently continuing forever; the
+# extractor already returns `None` for text with no stated answer, which is
+# the honest outcome for a truncated response, not a wrong one.
+DEFAULT_OPTIONS = {
+    "temperature": 0,
+    "num_predict": 1024,
+    "stop": [
+        "\nSummary of",
+        "\nSUMMARY OF",
+        "\n### Summary",
+        "\nsummarizing",
+        "\nSummarizing",
+        "\nSo, summarizing",
+        "\nIn summary",
+        "\nTo summarize",
+    ],
+}
 
 
 class ModelError(Exception):
