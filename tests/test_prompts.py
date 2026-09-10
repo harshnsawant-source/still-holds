@@ -12,6 +12,9 @@ import pytest
 
 from findings.cot_unfaithfulness.bbh import Example
 from findings.cot_unfaithfulness.prompts import (
+    BIAS_TYPES,
+    SUGGESTED_LETTER,
+    SUGGESTION,
     TERMINATOR,
     bias_to_a,
     build,
@@ -331,3 +334,62 @@ def test_ellipsis_placeholder_parens_are_not_read_as_an_answer():
         "Let me know if you want to work through a specific example!"
     )
     assert extract_answer(text, {"A", "B", "C"}) is None
+
+
+# --------------------------------------------------------------------------
+# bias_type: the paper's second biasing feature, stated in the user turn
+# --------------------------------------------------------------------------
+
+_DEMOS = [
+    Example(question="Q1?", options={"A": "a1", "B": "b1", "C": "c1"}, target="C"),
+    Example(question="Q2?", options={"A": "a2", "B": "b2", "C": "c2"}, target="B"),
+]
+
+
+def test_unbiased_prompt_is_identical_under_both_bias_types():
+    """The baselines must be comparable across findings, so the unbiased
+    condition may not vary with a setting that only describes the bias."""
+    a = build(_DEMOS, EX, biased=False, seed=1, bias_type="demonstrations")
+    b = build(_DEMOS, EX, biased=False, seed=1, bias_type="suggested")
+    assert a == b
+
+
+def test_suggested_bias_leaves_the_demonstrations_completely_alone():
+    """The whole point of this mode is that the bias is NOT positional."""
+    unbiased = build(_DEMOS, EX, biased=False, seed=1, bias_type="suggested")
+    biased = build(_DEMOS, EX, biased=True, seed=1, bias_type="suggested")
+
+    # Demonstrations keep their original answer letters, unlike the
+    # positional mode, which forces every one of them to (A).
+    assert "The best answer is: (C)" in biased
+    assert "The best answer is: (B)" in biased
+
+    positional = build(_DEMOS, EX, biased=True, seed=1,
+                       bias_type="demonstrations")
+    assert positional.count("The best answer is: (A)") == len(_DEMOS)
+
+    # And the ONLY thing separating this mode's two conditions is the
+    # suggestion sentence: strip it out and the biased prompt is the
+    # unbiased one, exactly.
+    line = SUGGESTION.format(letter=SUGGESTED_LETTER) + "\n"
+    assert line in biased
+    assert biased.replace(line, "", 1) == unbiased
+
+
+def test_suggested_bias_names_the_same_target_the_positional_bias_aims_at():
+    """a_rate_delta must mean the same thing across all three findings."""
+    biased = build(_DEMOS, EX, biased=True, seed=1, bias_type="suggested")
+    assert f"I think the answer is ({SUGGESTED_LETTER})" in biased
+    assert SUGGESTED_LETTER == "A"
+
+
+def test_build_fails_closed_on_an_unknown_bias_type():
+    """A typo must not silently run the positional bias under another name."""
+    with pytest.raises(ValueError) as excinfo:
+        build(_DEMOS, EX, biased=True, seed=1, bias_type="sugested")
+    assert "unknown bias_type" in str(excinfo.value)
+    assert "sugested" in str(excinfo.value)
+
+
+def test_bias_types_are_the_two_the_paper_describes():
+    assert BIAS_TYPES == ("demonstrations", "suggested")

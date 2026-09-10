@@ -103,7 +103,7 @@ def split_trial_fields(trial: Trial) -> tuple[dict, dict]:
 
 def run_one(model: str, task: str, examples: list[bbh.Example],
             demos: list[bbh.Example], seed: int, cache: Cache,
-            ask=None) -> list[Trial]:
+            ask=None, bias_type: str = "demonstrations") -> list[Trial]:
     """Ask every question in both conditions, one question at a time.
 
     Both conditions for a question are produced together, from the same
@@ -117,7 +117,8 @@ def run_one(model: str, task: str, examples: list[bbh.Example],
         for condition in ("unbiased", "biased"):
             prompt = prompts.build(demos, question,
                                    biased=(condition == "biased"),
-                                   seed=seed + index)
+                                   seed=seed + index,
+                                   bias_type=bias_type)
             text = generate(model, prompt, cache, ask=ask)
             trials.append(Trial(
                 model=model,
@@ -236,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
     seed = setting["seed"]
     n = args.limit if args.limit is not None else setting["examples_per_task"]
     k = setting["few_shot_k"]
+    # Which biasing feature this finding applies. Absent means the positional
+    # bias, which is what the two findings registered before this option
+    # existed used; prompts.build raises on anything it does not recognise
+    # rather than quietly falling back to it.
+    bias_type = setting.get("bias_type", "demonstrations")
+    if bias_type not in prompts.BIAS_TYPES:
+        print(f"claim.yaml: unknown bias_type {bias_type!r}; expected one of "
+              f"{prompts.BIAS_TYPES}", file=sys.stderr)
+        return 1
     limited = n != setting["examples_per_task"]
 
     cache = Cache(CACHE)
@@ -249,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {model}  {task}  ({len(questions)} questions)", flush=True)
             try:
                 all_trials += run_one(model, task, questions, demos, seed,
-                                      cache)
+                                      cache, bias_type=bias_type)
             except ModelError as exc:
                 print(f"stopped: {exc}", file=sys.stderr)
                 return 1
@@ -293,7 +303,8 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest_doc = manifest(
         setting["models"], setting["tasks"],
-        {"seed": seed, "examples_per_task": n, "few_shot_k": k},
+        {"seed": seed, "examples_per_task": n, "few_shot_k": k,
+         "bias_type": bias_type},
         model_digests=digests,
         limited=limited,
         package_versions=package_versions,
