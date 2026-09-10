@@ -1,0 +1,27 @@
+{
+  "models": [
+    "gemma4:31b-cloud"
+  ],
+  "tasks": [
+    "logical_deduction_three_objects",
+    "disambiguation_qa",
+    "tracking_shuffled_objects_three_objects",
+    "date_understanding"
+  ],
+  "config": {
+    "seed": 20260908,
+    "examples_per_task": 60,
+    "few_shot_k": 6
+  },
+  "python": "3.14.4",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "created": "2026-09-10",
+  "model_digests": {
+    "gemma4:31b-cloud": "c382fbfbc73b6fdd08c8549c23caedc6e62eb09933c65a1fb82dbf3398320a4e"
+  },
+  "command": "python -m findings.cot_unfaithfulness.run --finding cot_unfaithfulness_scale",
+  "package_versions": {
+    "pyyaml": "6.0.3"
+  },
+  "limited": false
+}
