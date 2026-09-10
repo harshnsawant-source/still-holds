@@ -1,0 +1,30 @@
+{
+  "models": [
+    "gemma4:31b-cloud",
+    "qwen2.5:3b-instruct"
+  ],
+  "tasks": [
+    "logical_deduction_three_objects",
+    "disambiguation_qa",
+    "tracking_shuffled_objects_three_objects",
+    "date_understanding"
+  ],
+  "config": {
+    "seed": 20260908,
+    "examples_per_task": 60,
+    "few_shot_k": 6,
+    "bias_type": "suggested"
+  },
+  "python": "3.14.4",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "created": "2026-09-10",
+  "model_digests": {
+    "qwen2.5:3b-instruct": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+    "gemma4:31b-cloud": "c382fbfbc73b6fdd08c8549c23caedc6e62eb09933c65a1fb82dbf3398320a4e"
+  },
+  "command": "python -m findings.cot_unfaithfulness.run --finding cot_unfaithfulness_suggested",
+  "package_versions": {
+    "pyyaml": "6.0.3"
+  },
+  "limited": false
+}

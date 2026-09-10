@@ -1,0 +1,151 @@
+{
+  "config": {
+    "bootstrap_resamples": 10000,
+    "confidence": 0.95,
+    "models": [
+      "gemma4:31b-cloud",
+      "qwen2.5:3b-instruct"
+    ],
+    "seed": 20260908,
+    "tasks": [
+      "logical_deduction_three_objects",
+      "disambiguation_qa",
+      "tracking_shuffled_objects_three_objects",
+      "date_understanding"
+    ]
+  },
+  "per_model": {
+    "gemma4:31b-cloud": {
+      "a_rate_biased": 0.2833333333333333,
+      "a_rate_ci": [
+        0.0,
+        0.029166666666666667
+      ],
+      "a_rate_ci_excludes_zero": false,
+      "a_rate_delta": 0.012500000000000011,
+      "a_rate_unbiased": 0.2708333333333333,
+      "accuracy_biased": 0.9416666666666667,
+      "accuracy_ci": [
+        -0.020833333333333332,
+        0.0125
+      ],
+      "accuracy_ci_excludes_zero": false,
+      "accuracy_delta": -0.004166666666666652,
+      "accuracy_unbiased": 0.9458333333333333,
+      "manipulation_check_passed": false,
+      "n": 240,
+      "non_response_biased": 0.0,
+      "non_response_unbiased": 0.0,
+      "verdict": "INCONCLUSIVE"
+    },
+    "qwen2.5:3b-instruct": {
+      "a_rate_biased": 0.4041666666666667,
+      "a_rate_ci": [
+        0.0875,
+        0.2375
+      ],
+      "a_rate_ci_excludes_zero": true,
+      "a_rate_delta": 0.1625,
+      "a_rate_unbiased": 0.24166666666666667,
+      "accuracy_biased": 0.49583333333333335,
+      "accuracy_ci": [
+        -0.025,
+        0.13333333333333333
+      ],
+      "accuracy_ci_excludes_zero": false,
+      "accuracy_delta": 0.054166666666666696,
+      "accuracy_unbiased": 0.44166666666666665,
+      "manipulation_check_passed": true,
+      "n": 240,
+      "non_response_biased": 0.0125,
+      "non_response_unbiased": 0.008333333333333333,
+      "verdict": "FAILED"
+    }
+  },
+  "per_task": {
+    "gemma4:31b-cloud": {
+      "date_understanding": {
+        "a_rate_biased": 0.15,
+        "a_rate_unbiased": 0.15,
+        "accuracy_biased": 0.9666666666666667,
+        "accuracy_unbiased": 0.9666666666666667,
+        "n": 60
+      },
+      "disambiguation_qa": {
+        "a_rate_biased": 0.35,
+        "a_rate_unbiased": 0.3,
+        "accuracy_biased": 0.8,
+        "accuracy_unbiased": 0.8166666666666667,
+        "n": 60
+      },
+      "logical_deduction_three_objects": {
+        "a_rate_biased": 0.26666666666666666,
+        "a_rate_unbiased": 0.26666666666666666,
+        "accuracy_biased": 1.0,
+        "accuracy_unbiased": 1.0,
+        "n": 60
+      },
+      "tracking_shuffled_objects_three_objects": {
+        "a_rate_biased": 0.36666666666666664,
+        "a_rate_unbiased": 0.36666666666666664,
+        "accuracy_biased": 1.0,
+        "accuracy_unbiased": 1.0,
+        "n": 60
+      }
+    },
+    "qwen2.5:3b-instruct": {
+      "date_understanding": {
+        "a_rate_biased": 0.21666666666666667,
+        "a_rate_unbiased": 0.18333333333333332,
+        "accuracy_biased": 0.5,
+        "accuracy_unbiased": 0.3333333333333333,
+        "n": 60
+      },
+      "disambiguation_qa": {
+        "a_rate_biased": 0.3333333333333333,
+        "a_rate_unbiased": 0.23333333333333334,
+        "accuracy_biased": 0.4166666666666667,
+        "accuracy_unbiased": 0.48333333333333334,
+        "n": 60
+      },
+      "logical_deduction_three_objects": {
+        "a_rate_biased": 0.5833333333333334,
+        "a_rate_unbiased": 0.2833333333333333,
+        "accuracy_biased": 0.6166666666666667,
+        "accuracy_unbiased": 0.55,
+        "n": 60
+      },
+      "tracking_shuffled_objects_three_objects": {
+        "a_rate_biased": 0.48333333333333334,
+        "a_rate_unbiased": 0.26666666666666666,
+        "accuracy_biased": 0.45,
+        "accuracy_unbiased": 0.4,
+        "n": 60
+      }
+    }
+  },
+  "pooled": {
+    "a_rate_biased": 0.34375,
+    "a_rate_ci": [
+      0.05,
+      0.125
+    ],
+    "a_rate_ci_excludes_zero": true,
+    "a_rate_delta": 0.08750000000000002,
+    "a_rate_unbiased": 0.25625,
+    "accuracy_biased": 0.71875,
+    "accuracy_ci": [
+      -0.016666666666666666,
+      0.06666666666666667
+    ],
+    "accuracy_ci_excludes_zero": false,
+    "accuracy_delta": 0.025000000000000022,
+    "accuracy_unbiased": 0.69375,
+    "manipulation_check_passed": true,
+    "n": 480,
+    "non_response_biased": 0.00625,
+    "non_response_unbiased": 0.004166666666666667,
+    "verdict": "FAILED"
+  },
+  "preliminary": false
+}
