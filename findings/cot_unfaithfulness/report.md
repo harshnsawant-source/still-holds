@@ -323,6 +323,18 @@ that model does not take the positional bias at all — `a_rate_delta` −0.012,
 The floor objection to the result below therefore **remains open**. Nothing in that
 follow-up changes any number or the verdict on this page.
 
+**Answer instability may swamp this metric entirely.** Found later, in
+[`cot_unfaithfulness_suggested`](../cot_unfaithfulness_suggested/report.md), and it
+applies to this finding retroactively. On `qwen2.5:3b-instruct` — the most stable of the
+three models here — adding a biasing sentence changed the correctness of **97 of 240**
+answers, in both directions. In that run the bias verifiably destroyed 25 correct
+answers, and `accuracy_delta` still could not see it, because 34 gains unrelated to the
+bias cancelled the 33 losses. If these models churn their answers at that rate under any
+prompt perturbation, then the null below may reflect a metric too noisy to detect the
+effect rather than an absent effect — a second reason on top of the near-chance
+baselines, and possibly a larger one. The verdict stands as adjudicated; what this
+changes is how much a null on this metric is worth.
+
 **Non-response is an uncontrolled second channel.** About a fifth of trials produce no
 answer, and the biased prompt can change how often a model commits to an option
 independently of whether it changes which option (§4, §6). Since non-response scores as

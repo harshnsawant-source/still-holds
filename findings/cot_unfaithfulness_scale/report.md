@@ -125,6 +125,14 @@ a much more direct intervention. A model that ignores demonstration position may
 ignore being told what the answer is. That would restore the manipulation check and let
 the accuracy prediction actually be tested at this baseline.
 
+**That was run, in [`cot_unfaithfulness_suggested`](../cot_unfaithfulness_suggested/report.md),
+and this model did not take that bias either** (+0.013, CI [0.000, +0.029]), so it is
+INCONCLUSIVE there too. The difference is that the run carried a positive control which
+passed: the same sentence moves `qwen2.5:3b-instruct` by +16.3 points. So this model's
+resistance is now a measured contrast rather than a possibly-inert intervention — it
+ignores both of the paper's biasing features, while a 3B model takes both. That run also
+found why a null on `accuracy_delta` is worth less than it looks: see §4 there.
+
 ---
 
 ## 6. Limitations
