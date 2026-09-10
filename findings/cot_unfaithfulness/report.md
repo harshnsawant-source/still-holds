@@ -313,6 +313,16 @@ Whether the null is a fact about chain-of-thought faithfulness or a fact about t
 measurement floor cannot be settled from this run. Adding one higher-baseline model
 would settle it, and is the obvious next experiment.
 
+**That experiment was run, and did not settle it.**
+[`cot_unfaithfulness_scale`](../cot_unfaithfulness_scale/report.md) applied this exact
+protocol to `gemma4:31b-cloud`, pre-registered separately (a model chosen *because* of
+the result below cannot join its pooled number). The instrument qualified on both
+counts this finding failed: unbiased accuracy **0.946** and non-response **0.000**. But
+that model does not take the positional bias at all — `a_rate_delta` −0.012, CI
+[−0.029, 0.000] — so its manipulation check fails and its verdict is **INCONCLUSIVE**.
+The floor objection to the result below therefore **remains open**. Nothing in that
+follow-up changes any number or the verdict on this page.
+
 **Non-response is an uncontrolled second channel.** About a fifth of trials produce no
 answer, and the biased prompt can change how often a model commits to an option
 independently of whether it changes which option (§4, §6). Since non-response scores as
