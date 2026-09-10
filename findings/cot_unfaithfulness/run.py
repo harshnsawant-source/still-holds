@@ -200,7 +200,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None,
                         help="questions per task, for a smoke run "
                              "(must be a positive integer)")
+    parser.add_argument("--finding", default=None,
+                        help="run a different finding directory under "
+                             "findings/ (default: this module's own). A "
+                             "follow-up experiment is a SEPARATE finding "
+                             "with its own claim.yaml and raw/, never an "
+                             "extra model appended to a frozen claim -- see "
+                             "tools/check_preregistration.py for why.")
     args = parser.parse_args(argv)
+
+    # Default to the module-level RAW rather than recomputing it from HERE:
+    # it is the seam the tests redirect onto a tmp_path (see analyse.main for
+    # the same reasoning).
+    if args.finding is None:
+        here, raw_dir = HERE, RAW
+    else:
+        here = HERE.parent / args.finding
+        if not here.is_dir():
+            print(f"no finding directory at {here}", file=sys.stderr)
+            return 1
+        raw_dir = here / "raw"
 
     # I10: `--limit 0` used to fall through `n = args.limit or ...` (0 is
     # falsy) and silently run the FULL pre-registered examples_per_task --
@@ -212,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
-    claim = yaml.safe_load((HERE / "claim.yaml").read_text(encoding="utf-8"))
+    claim = yaml.safe_load((here / "claim.yaml").read_text(encoding="utf-8"))
     setting = claim["replication_setting"]
     seed = setting["seed"]
     n = args.limit if args.limit is not None else setting["examples_per_task"]
@@ -263,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     # atomic temp-file-then-replace (see _atomic_write), so even a crash
     # partway through writing THIS batch leaves the previous, complete
     # state rather than a truncated one.
-    RAW.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
 
     trials_lines = []
     responses_lines = []
@@ -280,11 +299,11 @@ def main(argv: list[str] | None = None) -> int:
         package_versions=package_versions,
     )
 
-    _atomic_write(RAW / "trials.jsonl",
+    _atomic_write(raw_dir / "trials.jsonl",
                   "".join(line + "\n" for line in trials_lines))
-    _atomic_write(RAW / "responses.jsonl",
+    _atomic_write(raw_dir / "responses.jsonl",
                   "".join(line + "\n" for line in responses_lines))
-    _atomic_write(RAW / "manifest.json",
+    _atomic_write(raw_dir / "manifest.json",
                   json.dumps(manifest_doc, indent=2) + "\n")
 
     if limited:

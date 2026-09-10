@@ -631,14 +631,35 @@ def main(argv: list[str] | None = None) -> int:
         help="recompute every number from raw/trials.jsonl and confirm it "
              "matches the committed results/measurements.json; exits "
              "non-zero and names the disagreement otherwise")
+    parser.add_argument(
+        "--finding", default=None,
+        help="analyse a different finding directory under findings/ "
+             "(default: this module's own). A follow-up experiment is a "
+             "SEPARATE finding with its own claim.yaml, raw/ and results/, "
+             "never an extra model appended to a frozen claim -- see "
+             "tools/check_preregistration.py for why.")
     args = parser.parse_args(argv)
 
-    if not CLAIM_PATH.exists():
-        print(f"no claim at {CLAIM_PATH}", file=sys.stderr)
-        return 1
-    claim = yaml.safe_load(CLAIM_PATH.read_text(encoding="utf-8"))
+    # Default to the module-level constants rather than recomputing them from
+    # HERE: they are the seam the tests redirect onto a tmp_path, and a main()
+    # that silently ignored them would be testable only against the real
+    # findings/ directory.
+    if args.finding is None:
+        claim_path, raw, results = CLAIM_PATH, RAW, RESULTS
+    else:
+        here = HERE.parent / args.finding
+        if not here.is_dir():
+            print(f"no finding directory at {here}", file=sys.stderr)
+            return 1
+        claim_path, raw, results = (
+            here / "claim.yaml", here / "raw", here / "results")
 
-    trials_path = RAW / "trials.jsonl"
+    if not claim_path.exists():
+        print(f"no claim at {claim_path}", file=sys.stderr)
+        return 1
+    claim = yaml.safe_load(claim_path.read_text(encoding="utf-8"))
+
+    trials_path = raw / "trials.jsonl"
     if not trials_path.exists():
         print(f"no trials at {trials_path}; run the experiment first "
               f"(python -m findings.cot_unfaithfulness.run)", file=sys.stderr)
@@ -664,7 +685,7 @@ def main(argv: list[str] | None = None) -> int:
               f"recorded (missing their unbiased/biased partner) and are "
               f"excluded from every paired statistic below.", file=sys.stderr)
 
-    limited = is_limited_run(RAW)
+    limited = is_limited_run(raw)
 
     report = build_report(trials, claim)
     report["preliminary"] = limited
@@ -684,7 +705,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(format_table(report))
 
-    measurements_path = RESULTS / "measurements.json"
+    measurements_path = results / "measurements.json"
 
     if args.verify:
         if not measurements_path.exists():
@@ -703,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
               "fresh recomputation from raw/trials.jsonl")
         return 0
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
+    results.mkdir(parents=True, exist_ok=True)
     measurements_path.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"\nwrote {measurements_path}")

@@ -12,6 +12,7 @@ Also covers Task 6's rulings beyond the brief's own step-1 tests:
   corrupted (Ruling 2).
 """
 
+import shutil
 import json
 
 import pytest
@@ -634,3 +635,55 @@ def test_main_does_not_mark_preliminary_when_not_limited(
     data = json.loads(
         (tmp_path / "results" / "measurements.json").read_text(encoding="utf-8"))
     assert data["preliminary"] is False
+
+
+# --------------------------------------------------------------------------
+# --finding: a follow-up experiment is a separate finding, not an extra model
+# appended to a frozen claim. The flag must fail closed on a name that does
+# not resolve, for the same reason check_preregistration does: an unknown
+# finding name that silently analyses the DEFAULT finding would report one
+# experiment's numbers under another experiment's name.
+# --------------------------------------------------------------------------
+
+def test_finding_flag_fails_closed_on_an_unknown_name(tmp_path, monkeypatch, capsys):
+    _install_fixture(tmp_path, monkeypatch)
+    assert main(["--finding", "no_such_finding_exists"]) == 1
+    err = capsys.readouterr().err
+    assert "no finding directory" in err
+
+
+def test_finding_flag_reads_and_writes_that_finding_not_the_default(
+        tmp_path, monkeypatch):
+    """The override must not leak into, or read from, the default finding."""
+    _install_fixture(tmp_path, monkeypatch)
+
+    # A second finding directory, living beside the real ones under findings/,
+    # with its own claim and its own trials.
+    other = analyse_module.HERE.parent / "_tmp_finding_for_test"
+    other.mkdir()
+    try:
+        # Its own claim, registering only m1 -- the set of models is a
+        # property of the CLAIM, not of whatever trials happen to be present,
+        # so this is what makes the two findings distinguishable.
+        other_claim = _fixture_claim()
+        other_claim["replication_setting"]["models"] = ["m1"]
+        (other / "claim.yaml").write_text(
+            yaml.safe_dump(other_claim), encoding="utf-8")
+        (other / "raw").mkdir()
+        with (other / "raw" / "trials.jsonl").open("w", encoding="utf-8") as h:
+            # Only m1, so its results are distinguishable from the default
+            # fixture's two models.
+            for t in _fixture_trials():
+                if t["model"] == "m1":
+                    h.write(json.dumps(t) + "\n")
+
+        assert main(["--finding", "_tmp_finding_for_test"]) == 0
+
+        written = json.loads(
+            (other / "results" / "measurements.json").read_text(encoding="utf-8"))
+        assert set(written["per_model"]) == {"m1"}
+
+        # The default finding's results were not created or touched.
+        assert not (tmp_path / "results" / "measurements.json").exists()
+    finally:
+        shutil.rmtree(other)
