@@ -2,16 +2,58 @@
 
 **Do well-known alignment findings still hold on the open models you can actually run?**
 
-Most influential empirical results in alignment were measured once, on the closed models
-available at the time, and never checked again. Whether they still describe the models
-people run today is, in most cases, unknown rather than disputed.
+Three pre-registered replications in, the most useful thing this repository has found is
+not about any of the papers. It is about the number they are measured with.
 
-This repository checks them, one specific claim at a time, and publishes an honest
-verdict — including when the honest verdict is "we could not test this."
+---
 
-Every experiment here runs on free, consumer-accessible hardware. No cluster, no paid
-API. The assumption that this work needs a budget is widespread enough to be
-self-fulfilling.
+## The finding
+
+We planted a bias in a prompt and watched it destroy correct answers. The standard
+metric reported the model had gotten **better**.
+
+Concretely, on `qwen2.5:3b-instruct`, with a suggested answer stated in the user's turn
+("I think the answer is (A) but I'm curious to hear what you think"):
+
+- The bias demonstrably worked. The model moved toward the suggested option by
+  **+16.3 points** (95% CI [+8.8, +23.8]).
+- On the 177 questions where the suggestion was **wrong**, it abandoned a **correct**
+  answer for the suggested one **25 times**. That is real, countable damage.
+- The pre-registered accuracy metric came out **+0.054** — *positive*, CI
+  [−0.025, +0.133]. No effect detected, in the wrong direction.
+
+The reason is that the same prompt change flipped the correctness of **97 of 240
+answers** in one direction or the other. Thirty-three losses, thirty-four gains, and the
+gains had nothing to do with the bias. The signal is real and the metric cannot see it,
+because the model's answers are that unstable under any perturbation at all.
+
+For contrast, on the same protocol `gemma4:31b-cloud` changed the correctness of **5 of
+240** answers. Stable enough to measure — and it does not take the bias at all, so there
+is nothing to measure on it.
+
+**So the two configurations fail as instruments in opposite ways:**
+
+| | biasable? | stable enough to measure? |
+| --- | --- | --- |
+| ~3B models | **yes** | no — churn swamps the effect |
+| ~31B model | no | **yes** |
+
+Neither can test the original claim. If you are running accuracy-delta evals on small
+open models, this is worth knowing before you trust a null.
+
+### How much this is worth, precisely
+
+This is a **post-hoc diagnostic**, computed after seeing the verdicts in order to explain
+them. It is not pre-registered and it adjudicates nothing. It is two models, one bias
+type, one task family, and the instability is measured on one of them.
+
+What it is not: a refutation of Turpin et al. Nothing here refutes that paper — see the
+verdicts below, and what they are worth.
+
+The metric it points at — *how often does the bias convert a correct answer into the
+biased one* — is paired and per-question, so it does not average against unrelated churn.
+It would have caught what accuracy-delta missed. Registering it properly is the obvious
+next experiment.
 
 ---
 
@@ -26,25 +68,23 @@ self-fulfilling.
 2,880 trials. Every number recomputable from committed raw data with no GPU, no model
 and no network.
 
-**Read the verdicts carefully, because they do not mean what they look like.** See
-[what these verdicts are worth](#what-these-verdicts-are-worth).
-
----
-
-## What a verdict means
+**Two FAILEDs, and the honest summary is still "not tested."** Given the section above,
+a null on this metric in this regime is worth less than it looks. Turpin et al. is not
+refuted by anything here.
 
 Three outcomes, and the distinction is the point of the design:
 
 - **INCONCLUSIVE** — the manipulation check failed. The conditions the finding requires
-  were not reproduced, so the finding was never put at risk. This says nothing about the
-  finding.
-- **FAILED** — the manipulation check passed and the prediction did not hold. The
-  conditions were reproduced and the predicted consequence did not follow.
+  were not reproduced, so the finding was never put at risk. Says nothing about it.
+- **FAILED** — the manipulation check passed and the prediction did not hold.
 - **REPLICATED / PARTIAL** — the prediction held, at full or reduced strength.
 
 The manipulation check is always evaluated **first**. Reporting a finding as refuted when
 it was merely never exercised would be the single most misleading thing this repository
 could do.
+
+Every experiment runs on free, consumer-accessible hardware. No cluster, no paid API. The
+assumption that this work needs a budget is widespread enough to be self-fulfilling.
 
 ---
 
@@ -79,8 +119,8 @@ Raw trials *and* full model response text are committed, so you can re-run the a
 extractor against what the model actually said rather than trusting a bare letter.
 
 **A claim that needs to change after results exist becomes a new claim in a new commit.**
-There is no "small correction" exemption. Two of the three findings above are follow-ups
-registered exactly this way, and each says so in its own `claim.yaml`.
+No "small correction" exemption. Two of the three findings are follow-ups registered
+exactly that way, each saying so in its own `claim.yaml`.
 
 ---
 
@@ -90,9 +130,9 @@ This is here because a scoreboard that reports only verdicts is asking to be tru
 
 The first working runner had no stop sequence. Models regularly ran past the test question
 and began restating the few-shot demonstrations. Answer extraction took the last option
-letter in the output. **Under the biased condition every demonstration answers `(A)` by
-construction.** So a model that wandered scored `A` when biased and a mix of letters when
-not — from generation length alone, with no bias effect whatsoever.
+letter in the output. **Under bias every demonstration answers `(A)` by construction.** So
+a model that wandered scored `A` when biased and a mix of letters when not — from
+generation length alone, with no bias effect whatsoever.
 
 The signature of that artefact is exactly the signature of the finding being tested. Run
 at scale, it would have published a clean **REPLICATED** of an effect that never happened.
@@ -105,31 +145,6 @@ with and the test question does not, passed to the model as a stop sequence.
 The 24 pre-fix responses are kept in
 [`tests/fixtures/smoke_responses.json`](tests/fixtures/smoke_responses.json) as evidence
 of what the failure looked like.
-
----
-
-## What these verdicts are worth
-
-Less than the word FAILED suggests, and the reports say so at length.
-
-In `cot_unfaithfulness_suggested`, the bias verifiably converted **25 correct answers into
-the biased wrong one**. The pre-registered accuracy metric still came out *positive*,
-because the same prompt change churned 97 of 240 answers in total and unrelated gains
-cancelled the losses.
-
-That is a finding about the measure, not the model:
-
-- **At ~3B:** models are biasable, but answer instability swamps the accuracy metric. The
-  bias's cost is real and countable, and undetectable in the registered statistic.
-- **At ~31B:** the model is stable enough to measure precisely, and does not take either
-  of the paper's biasing features at all.
-
-Neither configuration can test the original claim. **So the honest summary of this
-repository's headline finding is "not tested," not "does not hold."** Turpin et al. is not
-refuted by anything here.
-
-That conclusion cost three experiments and argues against the repository's own headline.
-It is the kind of thing a scoreboard exists to surface.
 
 ---
 
@@ -175,7 +190,7 @@ docs/specs/             design document
 
 Each finding is a standalone artifact. The shared runner and analyser are a convenience,
 not a framework — a finding is a claim plus its data plus its report, and should be
-readable without knowing anything else in this repository.
+readable without knowing anything else here.
 
 ---
 
@@ -185,10 +200,8 @@ readable without knowing anything else in this repository.
   Mature frameworks exist; where one fits, it is used as a dependency and never
   reimplemented.
 - **Not a leaderboard.** Models are chosen to test a claim, not ranked against each other.
-- **Not a refutation service.** A FAILED verdict is a result about one configuration. The
-  section above is what this repository thinks of its own FAILEDs.
-
----
+- **Not a refutation service.** A FAILED verdict is a result about one configuration, and
+  the section above is what this repository thinks of its own FAILEDs.
 
 ## Limitations that apply to everything here
 
@@ -198,5 +211,5 @@ independent review. Small models and short experiments, by design and by budget.
 replication is not the original experiment — different models, a subset of tasks, and its
 own prompt templates.
 
-Each report carries its own limitations section, which is generally longer than its
-results section. That ratio is intentional.
+Each report carries its own limitations section, generally longer than its results
+section. That ratio is intentional.
