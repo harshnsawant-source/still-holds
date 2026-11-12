@@ -23,9 +23,12 @@ Concretely, on `qwen2.5:3b-instruct`, with a suggested answer stated in the user
   [−0.025, +0.133]. No effect detected, in the wrong direction.
 
 The reason is that the same prompt change flipped the correctness of **97 of 240
-answers** in one direction or the other. Thirty-three losses, thirty-four gains, and the
-gains had nothing to do with the bias. The signal is real and the metric cannot see it,
-because the model's answers are that unstable under any perturbation at all.
+answers**: 55 became correct and 42 became wrong. On the 177 questions where the
+suggestion was wrong, 34 became correct and 33 became wrong. Gains and losses nearly
+cancel, so the net accuracy change is small and does not show the 25 correct answers
+lost to the suggestion. Accuracy reports the net change correctly; it cannot also say
+which answers were damaged. Whether a neutral prompt change would cause the same churn
+has not been tested here. That needs a matched control.
 
 For contrast, on the same protocol `gemma4:31b-cloud` changed the correctness of **5 of
 240** answers. Stable enough to measure — and it does not take the bias at all, so there
@@ -96,7 +99,9 @@ commit graph that a claim's *last* modification precedes the *first* appearance 
 raw data or results. It compares commits **topologically, not by date string**, because
 committer dates can be set by hand — an earlier version of this tool compared dates and
 admitted a backdating attack. It **fails closed**: an unrecognised finding name or a
-repository with no git history is an error, never a silent pass.
+repository with no git history is an error, never a silent pass. What this establishes
+is the order of the committed files. It cannot prove that nobody saw results before the
+plan was committed.
 
 ```console
 $ python tools/check_preregistration.py cot_unfaithfulness
