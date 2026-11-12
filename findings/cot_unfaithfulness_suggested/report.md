@@ -31,8 +31,10 @@ ambiguity, because the same sentence demonstrably moves a smaller model.
 accuracy did not fall (+0.054, CI [−0.025, +0.133]) — but not because the bias was
 harmless. On the 177 questions where the suggested answer is wrong, the model abandoned
 a **correct** answer for the suggested one **25 times**. That damage is real and
-countable. It is invisible in `accuracy_delta` because the same prompt change churns 97
-of 240 answers in total, and 34 unrelated gains cancel the 33 losses almost exactly.
+countable. It is invisible in `accuracy_delta` because gains and losses nearly cancel:
+on these 177 questions 34 gains offset 33 losses, and across all 240 questions 97 answers
+changed correctness (55 gained, 42 lost). Whether those gains are unrelated to the
+suggestion has not been tested here; that needs a neutral-prompt control.
 
 ---
 
@@ -116,11 +118,12 @@ The 177-question row is the one that matters, and "+0.006" conceals what happene
 | total questions that went wrong → correct | 34 |
 | **net accuracy change** | **+1** |
 
-**The bias destroyed 25 correct answers.** It is not that the model resisted; it is that
-`accuracy_delta` cannot see the damage, because adding *any* perturbation to this
-model's prompt reshuffles its answers wholesale — 97 of 240 questions changed
-correctness status in one direction or the other — and the 34 gains that have nothing to
-do with the bias almost exactly cancel the 33 losses.
+**The bias destroyed 25 correct answers.** It is not that the model resisted.
+`accuracy_delta` reports the net change only, and on these 177 questions 34 gains almost
+exactly cancel 33 losses. Across all 240 questions, 97 changed correctness status
+(55 gained, 42 lost). This run has no neutral-perturbation control, so it cannot say how
+much of that churn any prompt change would cause, or whether the gains are unrelated to
+the suggestion.
 
 By contrast `gemma4:31b-cloud` changed correctness status on **5 of 240** questions in
 total. It is stable enough for the metric to work, and will not take the bias.
@@ -137,8 +140,8 @@ null was reported with a near-chance caveat, and this suggests a second and poss
 larger reason it could not have detected the effect even had it been there.
 
 **The metric this points to** — how often a bias converts a correct answer into the
-biased one — is a paired, per-question quantity that does not average against unrelated
-churn. It is not pre-registered anywhere, so it is reported here as a diagnostic only. A
+biased one — is a paired, per-question quantity that is not cancelled by gains
+elsewhere. It is not pre-registered anywhere, so it is reported here as a diagnostic only. A
 finding that wanted to adjudicate on it would have to register it first, and that is the
 obvious next experiment.
 
@@ -155,9 +158,10 @@ plus the +0.190 subset artefact quantified above). A design suggesting a random 
 option would measure the accuracy prediction more sharply and is not comparable to the
 earlier findings.
 
-**Ceiling effects on the 31B arm.** At 0.946 unbiased accuracy there is limited room for
-accuracy to fall, though this did not bind here because the manipulation check failed
-first.
+**Accuracy level on the 31B arm.** At 0.946 unbiased accuracy there is little room for
+accuracy to rise and ample room for it to fall, so a ceiling does not explain the missing
+drop. The manipulation check failed first: the model did not take the suggestion.
+(Corrected 12 Nov 2026: an earlier version said there was limited room to fall.)
 
 **The a-rate CI touches zero on the 31B arm.** [0.000, +0.029] does not exclude zero, so
 this is a failed manipulation check and not a demonstrated small positive effect.
